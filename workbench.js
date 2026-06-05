@@ -329,8 +329,7 @@ const frameCanvas = document.createElement("canvas");
 const frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
 let activeVideoUrl = null;
 
-const MIN_SHOT_SECONDS = 0.35;
-const MAX_SHOTS = 80;
+const MAX_SHOTS = 120;
 
 const shotLightbox = document.querySelector("#shot-lightbox");
 const shotLightboxImage = document.querySelector("#shot-lightbox-image");
@@ -400,8 +399,8 @@ function signatureDistance(a, b) {
 }
 
 function pixelDistance(imageDataA, imageDataB) {
-  const smallA = downscaleFrame(imageDataA, 40, 24);
-  const smallB = downscaleFrame(imageDataB, 40, 24);
+  const smallA = downscaleFrame(imageDataA, 48, 27);
+  const smallB = downscaleFrame(imageDataB, 48, 27);
   let diff = 0;
   const pixels = smallA.width * smallA.height;
 
@@ -415,36 +414,117 @@ function pixelDistance(imageDataA, imageDataB) {
   return diff / (pixels * 255 * 3);
 }
 
+function colorHistogram(imageData, bins = 12) {
+  const small = downscaleFrame(imageData, 64, 36);
+  const histogram = new Array(bins * 3).fill(0);
+  const { data } = small;
+
+  for (let i = 0; i < data.length; i += 4) {
+    histogram[Math.min(bins - 1, Math.floor((data[i] / 256) * bins))] += 1;
+    histogram[bins + Math.min(bins - 1, Math.floor((data[i + 1] / 256) * bins))] += 1;
+    histogram[bins * 2 + Math.min(bins - 1, Math.floor((data[i + 2] / 256) * bins))] += 1;
+  }
+
+  const total = data.length / 4;
+  return histogram.map((value) => value / total);
+}
+
+function histogramDistance(histogramA, histogramB) {
+  let distance = 0;
+  for (let i = 0; i < histogramA.length; i += 1) {
+    const sum = histogramA[i] + histogramB[i];
+    if (sum > 0) {
+      const diff = histogramA[i] - histogramB[i];
+      distance += (diff * diff) / sum;
+    }
+  }
+  return distance;
+}
+
+function blockMeanDistance(imageDataA, imageDataB) {
+  const smallA = downscaleFrame(imageDataA, 24, 14);
+  const smallB = downscaleFrame(imageDataB, 24, 14);
+  const gridX = 6;
+  const gridY = 4;
+  const cellW = smallA.width / gridX;
+  const cellH = smallA.height / gridY;
+  let total = 0;
+
+  for (let gy = 0; gy < gridY; gy += 1) {
+    for (let gx = 0; gx < gridX; gx += 1) {
+      let sumA = [0, 0, 0];
+      let sumB = [0, 0, 0];
+      let count = 0;
+      const startX = Math.floor(gx * cellW);
+      const endX = Math.floor((gx + 1) * cellW);
+      const startY = Math.floor(gy * cellH);
+      const endY = Math.floor((gy + 1) * cellH);
+
+      for (let y = startY; y < endY; y += 1) {
+        for (let x = startX; x < endX; x += 1) {
+          const index = (y * smallA.width + x) * 4;
+          sumA[0] += smallA.data[index];
+          sumA[1] += smallA.data[index + 1];
+          sumA[2] += smallA.data[index + 2];
+          sumB[0] += smallB.data[index];
+          sumB[1] += smallB.data[index + 1];
+          sumB[2] += smallB.data[index + 2];
+          count += 1;
+        }
+      }
+
+      total +=
+        (Math.abs(sumA[0] - sumB[0]) +
+          Math.abs(sumA[1] - sumB[1]) +
+          Math.abs(sumA[2] - sumB[2])) /
+        (count * 255 * 3);
+    }
+  }
+
+  return total / (gridX * gridY);
+}
+
 function frameChangeDistance(previousSample, currentSample) {
   const signatureDiff = signatureDistance(
     previousSample.signature,
     currentSample.signature,
   );
   const pixelDiff = pixelDistance(previousSample.imageData, currentSample.imageData);
-  return signatureDiff * 0.45 + pixelDiff * 0.55;
-}
+  const histogramDiff = histogramDistance(
+    previousSample.histogram,
+    currentSample.histogram,
+  );
+  const blockDiff = blockMeanDistance(previousSample.imageData, currentSample.imageData);
 
-function computeAdaptiveThreshold(distances) {
-  if (distances.length === 0) {
-    return 0.1;
-  }
-
-  const sorted = [...distances].sort((a, b) => a - b);
-  const mean = distances.reduce((sum, value) => sum + value, 0) / distances.length;
-  const variance =
-    distances.reduce((sum, value) => sum + (value - mean) ** 2, 0) / distances.length;
-  const std = Math.sqrt(variance);
-  const p70 = sorted[Math.floor(sorted.length * 0.7)] || mean;
-  const p85 = sorted[Math.floor(sorted.length * 0.85)] || mean;
-
-  return Math.max(0.08, Math.min(p85, mean + std * 0.75, p70 * 1.15 + 0.03));
+  return Math.max(
+    pixelDiff,
+    blockDiff * 1.35,
+    histogramDiff * 0.22,
+    signatureDiff * 0.95,
+  );
 }
 
 function sampleIntervalForDuration(duration) {
-  if (duration <= 30) return 0.12;
-  if (duration <= 90) return 0.16;
-  if (duration <= 180) return 0.22;
-  return 0.28;
+  if (duration <= 30) return 0.04;
+  if (duration <= 90) return 0.08;
+  if (duration <= 180) return 0.12;
+  return 0.18;
+}
+
+function median(values) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function waitForNextFrame(video) {
+  return new Promise((resolve) => {
+    if (typeof video.requestVideoFrameCallback === "function") {
+      video.requestVideoFrameCallback(() => resolve());
+      return;
+    }
+    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+  });
 }
 
 function seekVideoTo(video, time) {
@@ -472,24 +552,38 @@ function seekVideoTo(video, time) {
   });
 }
 
-async function captureFrameAt(video, time) {
-  await seekVideoTo(video, time);
+function createSampleFromVideo(video, time) {
   const width = video.videoWidth;
   const height = video.videoHeight;
   frameCanvas.width = width;
   frameCanvas.height = height;
   frameCtx.drawImage(video, 0, 0, width, height);
+  const imageData = frameCtx.getImageData(0, 0, width, height);
+  const downscaled = downscaleFrame(imageData);
   return {
-    imageData: frameCtx.getImageData(0, 0, width, height),
+    time: Number(time.toFixed(2)),
+    signature: frameSignature(downscaled),
+    imageData,
+    histogram: colorHistogram(imageData),
+  };
+}
+
+async function captureFrameAt(video, time) {
+  await seekVideoTo(video, time);
+  await waitForNextFrame(video);
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  frameCanvas.width = width;
+  frameCanvas.height = height;
+  frameCtx.drawImage(video, 0, 0, width, height);
+  const imageData = frameCtx.getImageData(0, 0, width, height);
+  return {
+    imageData,
     thumbnail: frameCanvas.toDataURL("image/jpeg", 0.84),
   };
 }
 
-function detectShotBoundaries(samples, sampleInterval) {
-  if (samples.length <= 1) {
-    return [{ start: 0, end: samples[0].time, endIndex: 0 }];
-  }
-
+function buildChangeSeries(samples) {
   const changes = [];
   for (let i = 1; i < samples.length; i += 1) {
     changes.push({
@@ -497,39 +591,53 @@ function detectShotBoundaries(samples, sampleInterval) {
       distance: frameChangeDistance(samples[i - 1], samples[i]),
     });
   }
+  return changes;
+}
 
+function pickCutIndices(changes, sampleInterval, sensitivity = 1) {
   const distances = changes.map((change) => change.distance);
-  const threshold = computeAdaptiveThreshold(distances);
-  const minIndexGap = Math.max(2, Math.round(MIN_SHOT_SECONDS / sampleInterval));
-  const boundaries = [0];
-  let lastBoundaryIndex = 0;
+  const med = median(distances);
+  const absDeviations = distances
+    .map((value) => Math.abs(value - med))
+    .sort((a, b) => a - b);
+  const mad = absDeviations[Math.floor(absDeviations.length / 2)] || 0.001;
+  const sorted = [...distances].sort((a, b) => a - b);
+  const p60 = sorted[Math.floor(sorted.length * 0.6)] || med;
+  const threshold = Math.max(
+    0.012,
+    (med + mad * 1.4 + p60 * 0.35) * sensitivity,
+  );
+  const minGap = Math.max(1, Math.round(0.1 / sampleInterval));
+  const cutIndices = [0];
+  let lastCut = 0;
 
   for (let i = 0; i < changes.length; i += 1) {
     const current = changes[i];
     const previous = changes[i - 1];
     const next = changes[i + 1];
-    const isLocalPeak =
+    const isPeak =
       (!previous || current.distance >= previous.distance) &&
-      (!next || current.distance >= next.distance);
-    const isStrongCut = current.distance >= threshold;
-    const isModerateCut =
-      current.distance >= threshold * 0.82 &&
-      isLocalPeak &&
-      current.distance >= (previous?.distance || 0) * 1.25;
+      (!next || current.distance > next.distance);
+    const isStrong = current.distance >= threshold;
+    const isModeratePeak =
+      isPeak && current.distance >= threshold * 0.72 && current.distance > med * 1.15;
 
-    if (
-      (isStrongCut || isModerateCut) &&
-      current.index - lastBoundaryIndex >= minIndexGap
-    ) {
-      boundaries.push(current.index);
-      lastBoundaryIndex = current.index;
+    if ((isStrong || isModeratePeak) && current.index - lastCut >= minGap) {
+      cutIndices.push(current.index);
+      lastCut = current.index;
     }
   }
 
+  return cutIndices;
+}
+
+function buildSegmentsFromCuts(samples, cutIndices) {
   const segments = [];
-  for (let i = 0; i < boundaries.length; i += 1) {
-    const startIndex = boundaries[i];
-    const endIndex = i + 1 < boundaries.length ? boundaries[i + 1] - 1 : samples.length - 1;
+  for (let i = 0; i < cutIndices.length; i += 1) {
+    const startIndex = cutIndices[i];
+    const endIndex =
+      i + 1 < cutIndices.length ? cutIndices[i + 1] - 1 : samples.length - 1;
+    if (endIndex < startIndex) continue;
     segments.push({
       start: samples[startIndex].time,
       end: samples[endIndex].time,
@@ -537,65 +645,132 @@ function detectShotBoundaries(samples, sampleInterval) {
       endIndex,
     });
   }
+  return segments;
+}
 
-  const merged = [];
-  for (const segment of segments) {
-    const duration = segment.end - segment.start;
-    const previous = merged[merged.length - 1];
-    if (previous && duration < MIN_SHOT_SECONDS) {
-      const bridgeDistance = frameChangeDistance(
-        samples[previous.startIndex],
-        samples[segment.endIndex],
-      );
-      if (bridgeDistance < threshold * 0.9) {
-        previous.end = segment.end;
-        previous.endIndex = segment.endIndex;
-        continue;
-      }
-    }
-    merged.push({ ...segment });
+function detectShotBoundaries(samples, sampleInterval, duration) {
+  if (samples.length <= 1) {
+    return [{ start: 0, end: samples[0].time, endIndex: 0 }];
   }
 
-  const subdivided = [];
-  for (const segment of merged) {
-    const duration = segment.end - segment.start;
-    if (duration > 5.5) {
-      const internalChanges = changes.filter(
-        (change) =>
-          change.index > segment.startIndex &&
-          change.index <= segment.endIndex &&
-          change.distance >= threshold * 0.72,
-      );
-      if (internalChanges.length > 0) {
-        let cursor = segment.startIndex;
-        for (const change of internalChanges) {
-          if (change.index - cursor >= minIndexGap) {
-            subdivided.push({
-              start: samples[cursor].time,
-              end: samples[change.index - 1].time,
-              startIndex: cursor,
-              endIndex: change.index - 1,
-            });
-            cursor = change.index;
-          }
+  const changes = buildChangeSeries(samples);
+  const expectedMinShots = Math.max(4, Math.floor(duration / 1.1));
+  let sensitivity = 1;
+  let cutIndices = pickCutIndices(changes, sampleInterval, sensitivity);
+  let segments = buildSegmentsFromCuts(samples, cutIndices);
+
+  while (segments.length < expectedMinShots && sensitivity > 0.22) {
+    sensitivity *= 0.68;
+    cutIndices = pickCutIndices(changes, sampleInterval, sensitivity);
+    segments = buildSegmentsFromCuts(samples, cutIndices);
+  }
+
+  if (segments.length > MAX_SHOTS) {
+    return segments.slice(0, MAX_SHOTS);
+  }
+
+  return segments;
+}
+
+async function sampleVideoFramesByPlayback(video, duration, sampleInterval, onProgress) {
+  const samples = [];
+  let lastCapturedTime = -Infinity;
+  const originalRate = video.playbackRate;
+
+  video.pause();
+  video.currentTime = 0;
+  video.muted = true;
+  video.playbackRate = 1;
+
+  await new Promise((resolve, reject) => {
+    const finish = () => {
+      video.pause();
+      video.playbackRate = originalRate;
+      video.currentTime = 0;
+      resolve();
+    };
+
+    const step = () => {
+      const time = video.currentTime;
+      if (time >= duration - 0.02 || video.ended) {
+        if (
+          samples.length === 0 ||
+          samples[samples.length - 1].time < duration - 0.05
+        ) {
+          samples.push(createSampleFromVideo(video, Math.min(time, duration - 0.01)));
         }
-        subdivided.push({
-          start: samples[cursor].time,
-          end: segment.end,
-          startIndex: cursor,
-          endIndex: segment.endIndex,
-        });
-        continue;
+        finish();
+        return;
       }
+
+      if (time - lastCapturedTime >= sampleInterval || samples.length === 0) {
+        samples.push(createSampleFromVideo(video, time));
+        lastCapturedTime = time;
+        onProgress(`正在播放抽帧… ${samples.length}`);
+      }
+
+      if (typeof video.requestVideoFrameCallback === "function") {
+        video.requestVideoFrameCallback(step);
+      } else {
+        window.requestAnimationFrame(step);
+      }
+    };
+
+    video.addEventListener(
+      "ended",
+      () => {
+        finish();
+      },
+      { once: true },
+    );
+
+    video
+      .play()
+      .then(() => {
+        if (typeof video.requestVideoFrameCallback === "function") {
+          video.requestVideoFrameCallback(step);
+        } else {
+          window.requestAnimationFrame(step);
+        }
+      })
+      .catch(reject);
+  });
+
+  return samples;
+}
+
+async function sampleVideoFramesBySeek(video, duration, sampleInterval, onProgress) {
+  const timestamps = [];
+  for (let time = 0; time < duration; time += sampleInterval) {
+    timestamps.push(Number(time.toFixed(2)));
+  }
+  if (timestamps[timestamps.length - 1] < duration - 0.1) {
+    timestamps.push(Number((duration - 0.02).toFixed(2)));
+  }
+
+  const samples = [];
+  let previousImageData = null;
+
+  for (let i = 0; i < timestamps.length; i += 1) {
+    onProgress(`正在抽帧分析… ${i + 1}/${timestamps.length}`);
+    await seekVideoTo(video, timestamps[i]);
+    await waitForNextFrame(video);
+
+    let sample = createSampleFromVideo(video, timestamps[i]);
+    if (
+      previousImageData &&
+      pixelDistance(previousImageData, sample.imageData) < 0.0008
+    ) {
+      await seekVideoTo(video, timestamps[i] + sampleInterval * 0.35);
+      await waitForNextFrame(video);
+      sample = createSampleFromVideo(video, video.currentTime);
     }
-    subdivided.push(segment);
+
+    samples.push(sample);
+    previousImageData = sample.imageData;
   }
 
-  if (subdivided.length > MAX_SHOTS) {
-    return subdivided.slice(0, MAX_SHOTS);
-  }
-
-  return subdivided;
+  return samples;
 }
 
 function analyzeSubjectRegion(imageData) {
@@ -766,31 +941,17 @@ function detectMotionBetween(startFrame, endFrame) {
 
 async function sampleVideoFrames(video, duration, onProgress) {
   const sampleInterval = sampleIntervalForDuration(duration);
-  const timestamps = [];
-  for (let time = 0; time < duration; time += sampleInterval) {
-    timestamps.push(Number(time.toFixed(2)));
-  }
-  if (timestamps[timestamps.length - 1] < duration - 0.15) {
-    timestamps.push(Number((duration - 0.05).toFixed(2)));
-  }
-
-  const samples = [];
-  for (let i = 0; i < timestamps.length; i += 1) {
-    onProgress(`正在抽帧分析… ${i + 1}/${timestamps.length}`);
-    const captured = await captureFrameAt(video, timestamps[i]);
-    samples.push({
-      time: timestamps[i],
-      signature: frameSignature(downscaleFrame(captured.imageData)),
-      imageData: captured.imageData,
-    });
-  }
+  const samples =
+    duration <= 45
+      ? await sampleVideoFramesByPlayback(video, duration, sampleInterval, onProgress)
+      : await sampleVideoFramesBySeek(video, duration, sampleInterval, onProgress);
 
   return { samples, sampleInterval };
 }
 
 async function buildStoryboardFromVideo(video, duration, onProgress) {
   const { samples, sampleInterval } = await sampleVideoFrames(video, duration, onProgress);
-  const segments = detectShotBoundaries(samples, sampleInterval);
+  const segments = detectShotBoundaries(samples, sampleInterval, duration);
   const rows = [];
 
   for (let i = 0; i < segments.length; i += 1) {
