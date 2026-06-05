@@ -329,9 +329,14 @@ const frameCanvas = document.createElement("canvas");
 const frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
 let activeVideoUrl = null;
 
-const SCENE_CUT_THRESHOLD = 0.28;
-const MIN_SHOT_SECONDS = 0.8;
-const MAX_SHOTS = 24;
+const MIN_SHOT_SECONDS = 0.35;
+const MAX_SHOTS = 80;
+
+const shotLightbox = document.querySelector("#shot-lightbox");
+const shotLightboxImage = document.querySelector("#shot-lightbox-image");
+const shotLightboxMeta = document.querySelector("#shot-lightbox-meta");
+const shotLightboxClose = document.querySelector(".shot-lightbox-close");
+const shotLightboxBackdrop = document.querySelector(".shot-lightbox-backdrop");
 
 function luminanceAt(data, width, x, y) {
   const index = (y * width + x) * 4;
@@ -394,6 +399,54 @@ function signatureDistance(a, b) {
   return Math.sqrt(total / a.length);
 }
 
+function pixelDistance(imageDataA, imageDataB) {
+  const smallA = downscaleFrame(imageDataA, 40, 24);
+  const smallB = downscaleFrame(imageDataB, 40, 24);
+  let diff = 0;
+  const pixels = smallA.width * smallA.height;
+
+  for (let i = 0; i < smallA.data.length; i += 4) {
+    diff +=
+      Math.abs(smallA.data[i] - smallB.data[i]) +
+      Math.abs(smallA.data[i + 1] - smallB.data[i + 1]) +
+      Math.abs(smallA.data[i + 2] - smallB.data[i + 2]);
+  }
+
+  return diff / (pixels * 255 * 3);
+}
+
+function frameChangeDistance(previousSample, currentSample) {
+  const signatureDiff = signatureDistance(
+    previousSample.signature,
+    currentSample.signature,
+  );
+  const pixelDiff = pixelDistance(previousSample.imageData, currentSample.imageData);
+  return signatureDiff * 0.45 + pixelDiff * 0.55;
+}
+
+function computeAdaptiveThreshold(distances) {
+  if (distances.length === 0) {
+    return 0.1;
+  }
+
+  const sorted = [...distances].sort((a, b) => a - b);
+  const mean = distances.reduce((sum, value) => sum + value, 0) / distances.length;
+  const variance =
+    distances.reduce((sum, value) => sum + (value - mean) ** 2, 0) / distances.length;
+  const std = Math.sqrt(variance);
+  const p70 = sorted[Math.floor(sorted.length * 0.7)] || mean;
+  const p85 = sorted[Math.floor(sorted.length * 0.85)] || mean;
+
+  return Math.max(0.08, Math.min(p85, mean + std * 0.75, p70 * 1.15 + 0.03));
+}
+
+function sampleIntervalForDuration(duration) {
+  if (duration <= 30) return 0.12;
+  if (duration <= 90) return 0.16;
+  if (duration <= 180) return 0.22;
+  return 0.28;
+}
+
 function seekVideoTo(video, time) {
   return new Promise((resolve, reject) => {
     const target = Math.max(0, Math.min(time, Math.max(video.duration - 0.04, 0)));
@@ -432,16 +485,44 @@ async function captureFrameAt(video, time) {
   };
 }
 
-function detectShotBoundaries(samples) {
+function detectShotBoundaries(samples, sampleInterval) {
   if (samples.length <= 1) {
     return [{ start: 0, end: samples[0].time, endIndex: 0 }];
   }
 
-  const boundaries = [0];
+  const changes = [];
   for (let i = 1; i < samples.length; i += 1) {
-    const distance = signatureDistance(samples[i - 1].signature, samples[i].signature);
-    if (distance >= SCENE_CUT_THRESHOLD) {
-      boundaries.push(i);
+    changes.push({
+      index: i,
+      distance: frameChangeDistance(samples[i - 1], samples[i]),
+    });
+  }
+
+  const distances = changes.map((change) => change.distance);
+  const threshold = computeAdaptiveThreshold(distances);
+  const minIndexGap = Math.max(2, Math.round(MIN_SHOT_SECONDS / sampleInterval));
+  const boundaries = [0];
+  let lastBoundaryIndex = 0;
+
+  for (let i = 0; i < changes.length; i += 1) {
+    const current = changes[i];
+    const previous = changes[i - 1];
+    const next = changes[i + 1];
+    const isLocalPeak =
+      (!previous || current.distance >= previous.distance) &&
+      (!next || current.distance >= next.distance);
+    const isStrongCut = current.distance >= threshold;
+    const isModerateCut =
+      current.distance >= threshold * 0.82 &&
+      isLocalPeak &&
+      current.distance >= (previous?.distance || 0) * 1.25;
+
+    if (
+      (isStrongCut || isModerateCut) &&
+      current.index - lastBoundaryIndex >= minIndexGap
+    ) {
+      boundaries.push(current.index);
+      lastBoundaryIndex = current.index;
     }
   }
 
@@ -460,20 +541,61 @@ function detectShotBoundaries(samples) {
   const merged = [];
   for (const segment of segments) {
     const duration = segment.end - segment.start;
-    if (merged.length > 0 && duration < MIN_SHOT_SECONDS) {
-      merged[merged.length - 1].end = segment.end;
-      merged[merged.length - 1].endIndex = segment.endIndex;
-    } else {
-      merged.push({ ...segment });
+    const previous = merged[merged.length - 1];
+    if (previous && duration < MIN_SHOT_SECONDS) {
+      const bridgeDistance = frameChangeDistance(
+        samples[previous.startIndex],
+        samples[segment.endIndex],
+      );
+      if (bridgeDistance < threshold * 0.9) {
+        previous.end = segment.end;
+        previous.endIndex = segment.endIndex;
+        continue;
+      }
     }
+    merged.push({ ...segment });
   }
 
-  if (merged.length > MAX_SHOTS) {
-    const step = Math.ceil(merged.length / MAX_SHOTS);
-    return merged.filter((_, index) => index % step === 0).slice(0, MAX_SHOTS);
+  const subdivided = [];
+  for (const segment of merged) {
+    const duration = segment.end - segment.start;
+    if (duration > 5.5) {
+      const internalChanges = changes.filter(
+        (change) =>
+          change.index > segment.startIndex &&
+          change.index <= segment.endIndex &&
+          change.distance >= threshold * 0.72,
+      );
+      if (internalChanges.length > 0) {
+        let cursor = segment.startIndex;
+        for (const change of internalChanges) {
+          if (change.index - cursor >= minIndexGap) {
+            subdivided.push({
+              start: samples[cursor].time,
+              end: samples[change.index - 1].time,
+              startIndex: cursor,
+              endIndex: change.index - 1,
+            });
+            cursor = change.index;
+          }
+        }
+        subdivided.push({
+          start: samples[cursor].time,
+          end: segment.end,
+          startIndex: cursor,
+          endIndex: segment.endIndex,
+        });
+        continue;
+      }
+    }
+    subdivided.push(segment);
   }
 
-  return merged;
+  if (subdivided.length > MAX_SHOTS) {
+    return subdivided.slice(0, MAX_SHOTS);
+  }
+
+  return subdivided;
 }
 
 function analyzeSubjectRegion(imageData) {
@@ -643,12 +765,12 @@ function detectMotionBetween(startFrame, endFrame) {
 }
 
 async function sampleVideoFrames(video, duration, onProgress) {
-  const sampleInterval = Math.max(0.35, Math.min(1.2, duration / 48));
+  const sampleInterval = sampleIntervalForDuration(duration);
   const timestamps = [];
   for (let time = 0; time < duration; time += sampleInterval) {
     timestamps.push(Number(time.toFixed(2)));
   }
-  if (timestamps[timestamps.length - 1] < duration - 0.2) {
+  if (timestamps[timestamps.length - 1] < duration - 0.15) {
     timestamps.push(Number((duration - 0.05).toFixed(2)));
   }
 
@@ -663,12 +785,12 @@ async function sampleVideoFrames(video, duration, onProgress) {
     });
   }
 
-  return samples;
+  return { samples, sampleInterval };
 }
 
 async function buildStoryboardFromVideo(video, duration, onProgress) {
-  const samples = await sampleVideoFrames(video, duration, onProgress);
-  const segments = detectShotBoundaries(samples);
+  const { samples, sampleInterval } = await sampleVideoFrames(video, duration, onProgress);
+  const segments = detectShotBoundaries(samples, sampleInterval);
   const rows = [];
 
   for (let i = 0; i < segments.length; i += 1) {
@@ -699,6 +821,27 @@ async function buildStoryboardFromVideo(video, duration, onProgress) {
   return rows;
 }
 
+function openShotLightbox(row) {
+  shotLightboxImage.src = row.thumbnail;
+  shotLightboxImage.alt = `镜${row.shot}画面预览`;
+  shotLightboxMeta.innerHTML = `
+    <div><strong>镜 ${String(row.shot).padStart(2, "0")}</strong> · ${row.timeRange}</div>
+    <div><strong>景别</strong>：${shotSizeLabels[row.size] || row.size} · <strong>运镜</strong>：${motionLabels[row.motion] || row.motion}</div>
+    <div><strong>主体动作</strong>：${row.action}</div>
+    <div><strong>机位</strong>：${angleLabels[row.angle] || row.angle} · <strong>备注</strong>：${row.note}</div>
+  `;
+  shotLightbox.hidden = false;
+  shotLightbox.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeShotLightbox() {
+  shotLightbox.hidden = true;
+  shotLightbox.classList.add("hidden");
+  shotLightboxImage.removeAttribute("src");
+  document.body.style.overflow = "";
+}
+
 function renderStoryboard(rows) {
   if (rows.length === 0) {
     storyboardBody.innerHTML =
@@ -717,11 +860,22 @@ function renderStoryboard(rows) {
           <td>${row.action}</td>
           <td>${angleLabels[row.angle] || row.angle}</td>
           <td>${row.note}</td>
-          <td class="shot-thumb"><img src="${row.thumbnail}" alt="镜${row.shot}画面" loading="lazy" /></td>
+          <td class="shot-thumb">
+            <button
+              type="button"
+              class="shot-thumb-btn"
+              data-shot="${row.shot}"
+              aria-label="查看镜${row.shot}画面"
+            >
+              <img src="${row.thumbnail}" alt="镜${row.shot}画面" loading="lazy" />
+            </button>
+          </td>
         </tr>
       `,
     )
     .join("");
+
+  storyboardBody._storyboardRows = rows;
 }
 
 function resetStoryboard(message) {
@@ -826,3 +980,24 @@ videoReplaceBtn.addEventListener("click", () => videoInput.click());
 
 setupUploadZone(photoUploadZone, photoInput, analyzePhoto);
 setupUploadZone(videoUploadZone, videoInput, analyzeVideo);
+
+storyboardBody.addEventListener("click", (event) => {
+  const button = event.target.closest(".shot-thumb-btn");
+  if (!button || !storyboardBody._storyboardRows) {
+    return;
+  }
+  const row = storyboardBody._storyboardRows.find(
+    (item) => String(item.shot) === button.dataset.shot,
+  );
+  if (row) {
+    openShotLightbox(row);
+  }
+});
+
+shotLightboxClose.addEventListener("click", closeShotLightbox);
+shotLightboxBackdrop.addEventListener("click", closeShotLightbox);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !shotLightbox.hidden) {
+    closeShotLightbox();
+  }
+});
