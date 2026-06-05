@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Camerobot - 个人机器人摄影师 Pro，类人型陪伴、构图复刻、灯光反馈、摇臂和无人机协同。"
+    />
+    <title>Camerobot | 个人机器人摄影师 Pro</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Camerobot 首页">
+        <span class="brand-mark">C</span>
+        <span>Camerobot</span>
+      </a>
+      <nav class="nav" aria-label="主导航">
+        <a href="#product">产品</a>
+        <a href="#software">软件</a>
+        <a href="#demo">演示</a>
+        <a href="#roadmap">路线</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Personal Robot Photographer Pro</p>
+          <h1>摄影界的智能航空母舰</h1>
+          <p class="hero-text">
+            Camerobot 是一个类人型陪伴摄影机器人：能看懂参考图，复刻主体位置、
+            构图、机位和光线，并控制底盘、升降、相机头、轻摇臂、灯光和无人机。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#demo">体验 Shot Plan 演示</a>
+            <a class="button secondary" href="#software">查看软件架构</a>
+          </div>
+        </div>
+
+        <div class="robot-card" aria-label="Camerobot 概念展示">
+          <div class="robot-head">
+            <div class="drone-ear left"></div>
+            <div class="drone-ear right"></div>
+            <div class="eye-display">
+              <span id="eye-status">拍摄完毕</span>
+              <strong id="eye-preview">预览窗口</strong>
+            </div>
+            <div class="lens"></div>
+          </div>
+          <div class="robot-body">
+            <div class="body-light"></div>
+            <div class="storage-line"></div>
+            <div class="storage-line short"></div>
+          </div>
+          <div class="robot-arm"></div>
+          <div class="robot-base">
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+      </section>
+
+      <section id="product" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Product Scope</p>
+          <h2>先替代一部分独立摄影师的重复性工作</h2>
+        </div>
+        <div class="grid cards">
+          <article class="card">
+            <h3>个人写真 / 旅拍</h3>
+            <p>自动构图、主体跟踪、倒计时、补光和拍后预览，让一个人也能完成稳定拍摄。</p>
+          </article>
+          <article class="card">
+            <h3>Vlog 摄影助理</h3>
+            <p>跟随移动、保持主体比例、显示录制状态，并用眼睛屏提示用户怎么站。</p>
+          </article>
+          <article class="card">
+            <h3>产品和活动拍摄</h3>
+            <p>复用固定机位、灯光、角度和运镜，完成可标准化、可重复的出片流程。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="software" class="section split">
+        <div>
+          <p class="eyebrow">Software Loop</p>
+          <h2>从参考画面到机器人动作</h2>
+          <p>
+            MVP0 先跑通软件闭环：上传/登记参考图，生成结构化分析，再输出底盘、
+            升降、云台、相机、摇臂、灯光和眼睛屏事件。
+          </p>
+        </div>
+        <ol class="pipeline">
+          <li><span>01</span>参考图 / 视频上传</li>
+          <li><span>02</span>主体、构图、机位、光线分析</li>
+          <li><span>03</span>生成 Shot Plan</li>
+          <li><span>04</span>控制身体各部位</li>
+          <li><span>05</span>眼睛屏显示拍摄状态和预览</li>
+        </ol>
+      </section>
+
+      <section id="demo" class="section demo-section">
+        <div class="section-heading">
+          <p class="eyebrow">Interactive MVP0</p>
+          <h2>Shot Plan 前端演示</h2>
+          <p>
+            这里先用浏览器本地规则模拟后端 MVP0。选择拍摄意图后，会生成身体控制计划
+            和眼睛显示屏反馈。
+          </p>
+        </div>
+
+        <div class="demo-panel">
+          <form id="shot-form" class="shot-form">
+            <label>
+              拍摄意图
+              <select id="intent" name="intent">
+                <option value="replicate_composition">复刻参考构图</option>
+                <option value="improve_portrait">优化人像</option>
+                <option value="vlog_follow">Vlog 跟拍</option>
+                <option value="product_shoot">产品拍摄</option>
+                <option value="drone_reveal">无人机开场</option>
+              </select>
+            </label>
+            <label>
+              画幅
+              <select id="orientation" name="orientation">
+                <option value="portrait">竖图</option>
+                <option value="landscape">横图</option>
+                <option value="square">方图</option>
+              </select>
+            </label>
+            <label class="checkbox">
+              <input id="use-drone" type="checkbox" />
+              允许无人机
+            </label>
+            <button class="button primary" type="submit">生成 Shot Plan</button>
+          </form>
+
+          <div class="output-wrap">
+            <div class="eye-simulator">
+              <p>眼睛显示屏</p>
+              <strong id="demo-eye-title">正在构图</strong>
+              <span id="demo-eye-message">位置很好，请看镜头</span>
+            </div>
+            <pre id="shot-output" aria-live="polite"></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="roadmap" class="section roadmap">
+        <p class="eyebrow">Roadmap</p>
+        <h2>MVP 路线</h2>
+        <div class="timeline">
+          <div><strong>MVP0</strong><span>软件仿真和 Shot Plan</span></div>
+          <div><strong>MVP1</strong><span>移动相机机器人 + 眼睛预览</span></div>
+          <div><strong>MVP2</strong><span>轻摇臂和电影感运镜</span></div>
+          <div><strong>MVP3</strong><span>无人机与多机位协同</span></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Camerobot MVP0</span>
+      <span>Reference image -> analysis -> shot plan -> face display</span>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
