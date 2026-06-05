@@ -517,7 +517,7 @@ function analyzeSubjectRegion(imageData) {
           gx / gridX,
           gy / gridY,
           1 / gridX,
-          1 / gridH,
+          1 / gridY,
         ];
       }
     }
