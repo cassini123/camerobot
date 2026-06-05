@@ -807,6 +807,22 @@ pre {
   font-weight: 900;
 }
 
+.storyboard-table .shot-thumb {
+  width: 148px;
+  min-width: 148px;
+}
+
+.storyboard-table .shot-thumb img {
+  display: block;
+  width: 132px;
+  height: auto;
+  max-height: 88px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101626;
+}
+
 @media (max-width: 900px) {
   .nav {
     display: none;

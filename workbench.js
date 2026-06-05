@@ -325,46 +325,374 @@ function analyzePhoto(file) {
   image.src = objectUrl;
 }
 
-function buildStoryboardRows(duration, orientation) {
-  const interval = duration <= 12 ? 2 : duration <= 30 ? 3 : 5;
-  const shotPatterns = [
-    { size: "wide", motion: "locked_off", action: "环境建立，交代场景", angle: "high_angle", note: "开场定场" },
-    { size: "medium_wide", motion: "dolly_in", action: "主体入画，走向镜头", angle: "eye_level", note: "引导视线" },
-    { size: "medium", motion: "follow", action: "主体停驻，自然互动", angle: "eye_level", note: "核心叙事" },
-    { size: "medium_close", motion: "locked_off", action: "表情或细节特写", angle: "slightly_high", note: "情绪强化" },
-    { size: "medium", motion: "pan_right", action: "主体转身或移动", angle: "eye_level", note: "节奏过渡" },
-    { size: "medium_wide", motion: "dolly_out", action: "拉开空间，收束段落", angle: "eye_level", note: "段落结束" },
-  ];
+const frameCanvas = document.createElement("canvas");
+const frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
+let activeVideoUrl = null;
 
-  const rows = [];
-  let time = 0;
-  let index = 0;
+const SCENE_CUT_THRESHOLD = 0.28;
+const MIN_SHOT_SECONDS = 0.8;
+const MAX_SHOTS = 24;
 
-  while (time < duration && rows.length < 12) {
-    const pattern = shotPatterns[index % shotPatterns.length];
-    const end = Math.min(time + interval, duration);
-    rows.push({
-      shot: rows.length + 1,
-      timeRange: `${formatTime(time)} - ${formatTime(end)}`,
-      size: pattern.size,
-      motion: pattern.motion,
-      action: pattern.action,
-      angle: pattern.angle,
-      note: index === 0 ? pattern.note : orientation === "portrait" ? "竖屏构图" : pattern.note,
-    });
-    time = end;
-    index += 1;
+function luminanceAt(data, width, x, y) {
+  const index = (y * width + x) * 4;
+  return data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+}
+
+function downscaleFrame(imageData, targetW = 96, targetH = 54) {
+  frameCanvas.width = targetW;
+  frameCanvas.height = targetH;
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = imageData.width;
+  tempCanvas.height = imageData.height;
+  tempCanvas.getContext("2d").putImageData(imageData, 0, 0);
+  frameCtx.drawImage(tempCanvas, 0, 0, targetW, targetH);
+  return frameCtx.getImageData(0, 0, targetW, targetH);
+}
+
+function frameSignature(imageData) {
+  const { width, height, data } = imageData;
+  const gridX = 8;
+  const gridY = 8;
+  const signature = [];
+  const cellW = width / gridX;
+  const cellH = height / gridY;
+
+  for (let gy = 0; gy < gridY; gy += 1) {
+    for (let gx = 0; gx < gridX; gx += 1) {
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      const startX = Math.floor(gx * cellW);
+      const endX = Math.floor((gx + 1) * cellW);
+      const startY = Math.floor(gy * cellH);
+      const endY = Math.floor((gy + 1) * cellH);
+
+      for (let y = startY; y < endY; y += 1) {
+        for (let x = startX; x < endX; x += 1) {
+          const lum = luminanceAt(data, width, x, y);
+          sum += lum;
+          sumSq += lum * lum;
+          count += 1;
+        }
+      }
+
+      const mean = sum / count;
+      const variance = Math.max(0, sumSq / count - mean * mean);
+      signature.push(mean / 255, variance / 6500);
+    }
   }
 
-  if (rows.length === 0) {
+  return signature;
+}
+
+function signatureDistance(a, b) {
+  let total = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const diff = a[i] - b[i];
+    total += diff * diff;
+  }
+  return Math.sqrt(total / a.length);
+}
+
+function seekVideoTo(video, time) {
+  return new Promise((resolve, reject) => {
+    const target = Math.max(0, Math.min(time, Math.max(video.duration - 0.04, 0)));
+    const timeout = window.setTimeout(() => {
+      video.removeEventListener("seeked", onSeeked);
+      reject(new Error("视频定位超时"));
+    }, 8000);
+
+    const onSeeked = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("seeked", onSeeked);
+      resolve();
+    };
+
+    if (Math.abs(video.currentTime - target) < 0.03) {
+      window.clearTimeout(timeout);
+      resolve();
+      return;
+    }
+
+    video.addEventListener("seeked", onSeeked);
+    video.currentTime = target;
+  });
+}
+
+async function captureFrameAt(video, time) {
+  await seekVideoTo(video, time);
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  frameCanvas.width = width;
+  frameCanvas.height = height;
+  frameCtx.drawImage(video, 0, 0, width, height);
+  return {
+    imageData: frameCtx.getImageData(0, 0, width, height),
+    thumbnail: frameCanvas.toDataURL("image/jpeg", 0.84),
+  };
+}
+
+function detectShotBoundaries(samples) {
+  if (samples.length <= 1) {
+    return [{ start: 0, end: samples[0].time, endIndex: 0 }];
+  }
+
+  const boundaries = [0];
+  for (let i = 1; i < samples.length; i += 1) {
+    const distance = signatureDistance(samples[i - 1].signature, samples[i].signature);
+    if (distance >= SCENE_CUT_THRESHOLD) {
+      boundaries.push(i);
+    }
+  }
+
+  const segments = [];
+  for (let i = 0; i < boundaries.length; i += 1) {
+    const startIndex = boundaries[i];
+    const endIndex = i + 1 < boundaries.length ? boundaries[i + 1] - 1 : samples.length - 1;
+    segments.push({
+      start: samples[startIndex].time,
+      end: samples[endIndex].time,
+      startIndex,
+      endIndex,
+    });
+  }
+
+  const merged = [];
+  for (const segment of segments) {
+    const duration = segment.end - segment.start;
+    if (merged.length > 0 && duration < MIN_SHOT_SECONDS) {
+      merged[merged.length - 1].end = segment.end;
+      merged[merged.length - 1].endIndex = segment.endIndex;
+    } else {
+      merged.push({ ...segment });
+    }
+  }
+
+  if (merged.length > MAX_SHOTS) {
+    const step = Math.ceil(merged.length / MAX_SHOTS);
+    return merged.filter((_, index) => index % step === 0).slice(0, MAX_SHOTS);
+  }
+
+  return merged;
+}
+
+function analyzeSubjectRegion(imageData) {
+  const small = downscaleFrame(imageData, 48, 27);
+  const { width, height, data } = small;
+  const gridX = 12;
+  const gridY = 8;
+  const cellW = width / gridX;
+  const cellH = height / gridY;
+  let bestScore = -1;
+  let bestBox = [0.28, 0.2, 0.44, 0.6];
+
+  for (let gy = 0; gy < gridY; gy += 1) {
+    for (let gx = 0; gx < gridX; gx += 1) {
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      const startX = Math.floor(gx * cellW);
+      const endX = Math.floor((gx + 1) * cellW);
+      const startY = Math.floor(gy * cellH);
+      const endY = Math.floor((gy + 1) * cellH);
+
+      for (let y = startY; y < endY; y += 1) {
+        for (let x = startX; x < endX; x += 1) {
+          const lum = luminanceAt(data, width, x, y);
+          sum += lum;
+          sumSq += lum * lum;
+          count += 1;
+        }
+      }
+
+      const mean = sum / count;
+      const variance = Math.max(0, sumSq / count - mean * mean);
+      const edgeScore = variance / 900;
+      const centerWeight = 1 - Math.abs(gx / gridX - 0.5) * 0.7 - Math.abs(gy / gridY - 0.45) * 0.5;
+      const score = edgeScore * centerWeight;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestBox = [
+          gx / gridX,
+          gy / gridY,
+          1 / gridX,
+          1 / gridH,
+        ];
+      }
+    }
+  }
+
+  const expand = 2.4;
+  const cx = bestBox[0] + bestBox[2] / 2;
+  const cy = bestBox[1] + bestBox[3] / 2;
+  const w = Math.min(0.92, bestBox[2] * expand);
+  const h = Math.min(0.92, bestBox[3] * expand);
+  return [
+    Math.max(0, cx - w / 2),
+    Math.max(0, cy - h / 2),
+    w,
+    h,
+  ];
+}
+
+function shotSizeFromBBox(bbox) {
+  const area = bbox[2] * bbox[3];
+  if (area < 0.12) return "wide";
+  if (area < 0.22) return "medium_wide";
+  if (area < 0.38) return "medium";
+  if (area < 0.55) return "medium_close";
+  return "close";
+}
+
+function angleFromBBox(bbox) {
+  const centerY = bbox[1] + bbox[3] / 2;
+  if (centerY < 0.36) return "high_angle";
+  if (centerY > 0.64) return "low_angle";
+  if (centerY < 0.46) return "slightly_high";
+  return "eye_level";
+}
+
+function describeSubjectAction(bbox, motion) {
+  const centerX = bbox[0] + bbox[2] / 2;
+  const horizontal =
+    centerX < 0.38 ? "主体居左" : centerX > 0.62 ? "主体居右" : "主体居中";
+  const vertical =
+    bbox[1] < 0.22 ? "画面上方活动" : bbox[1] > 0.42 ? "画面下方活动" : "画面中部活动";
+
+  if (motion.type === "follow") {
+    return `${horizontal}，${vertical}，持续移动`;
+  }
+  if (motion.type === "dolly_in") {
+    return `${horizontal}，向镜头靠近`;
+  }
+  if (motion.type === "dolly_out") {
+    return `${horizontal}，远离镜头`;
+  }
+  if (motion.type === "pan_left" || motion.type === "pan_right") {
+    return `${horizontal}，横向扫视`;
+  }
+  return `${horizontal}，${vertical}`;
+}
+
+function detectMotionBetween(startFrame, endFrame) {
+  const start = downscaleFrame(startFrame, 32, 18);
+  const end = downscaleFrame(endFrame, 32, 18);
+  const { width, height, data: startData } = start;
+  const endData = end.data;
+
+  let weightedDx = 0;
+  let weightedDy = 0;
+  let totalWeight = 0;
+  let globalDiff = 0;
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const lum = luminanceAt(startData, width, x, y);
+      const right = Math.abs(lum - luminanceAt(startData, width, x + 1, y));
+      const down = Math.abs(lum - luminanceAt(startData, width, x, y + 1));
+      const edge = right + down;
+      const endLum = luminanceAt(endData, width, x, y);
+      const diff = Math.abs(lum - endLum);
+      globalDiff += diff;
+      if (edge < 12) continue;
+
+      const localDx =
+        luminanceAt(endData, width, Math.min(width - 1, x + 1), y) -
+        luminanceAt(endData, width, Math.max(0, x - 1), y);
+      const localDy =
+        luminanceAt(endData, width, x, Math.min(height - 1, y + 1)) -
+        luminanceAt(endData, width, x, Math.max(0, y - 1));
+
+      const weight = edge * diff;
+      weightedDx += localDx * weight;
+      weightedDy += localDy * weight;
+      totalWeight += weight;
+    }
+  }
+
+  const avgDiff = globalDiff / (width * height * 255);
+  if (avgDiff < 0.018) {
+    return { type: "locked_off", note: "画面稳定" };
+  }
+
+  if (totalWeight < 1) {
+    return { type: "locked_off_or_slow_push", note: "轻微变化" };
+  }
+
+  const dx = weightedDx / totalWeight;
+  const dy = weightedDy / totalWeight;
+  const magnitude = Math.hypot(dx, dy);
+
+  if (magnitude < 0.8) {
+    return { type: "locked_off_or_slow_push", note: "缓推或轻微运动" };
+  }
+  if (Math.abs(dx) > Math.abs(dy) * 1.4) {
+    return {
+      type: dx > 0 ? "pan_right" : "pan_left",
+      note: dx > 0 ? "镜头右移" : "镜头左移",
+    };
+  }
+  if (dy < -1.2) {
+    return { type: "dolly_in", note: "镜头推进" };
+  }
+  if (dy > 1.2) {
+    return { type: "dolly_out", note: "镜头拉远" };
+  }
+  return { type: "follow", note: "跟拍运动" };
+}
+
+async function sampleVideoFrames(video, duration, onProgress) {
+  const sampleInterval = Math.max(0.35, Math.min(1.2, duration / 48));
+  const timestamps = [];
+  for (let time = 0; time < duration; time += sampleInterval) {
+    timestamps.push(Number(time.toFixed(2)));
+  }
+  if (timestamps[timestamps.length - 1] < duration - 0.2) {
+    timestamps.push(Number((duration - 0.05).toFixed(2)));
+  }
+
+  const samples = [];
+  for (let i = 0; i < timestamps.length; i += 1) {
+    onProgress(`正在抽帧分析… ${i + 1}/${timestamps.length}`);
+    const captured = await captureFrameAt(video, timestamps[i]);
+    samples.push({
+      time: timestamps[i],
+      signature: frameSignature(downscaleFrame(captured.imageData)),
+      imageData: captured.imageData,
+    });
+  }
+
+  return samples;
+}
+
+async function buildStoryboardFromVideo(video, duration, onProgress) {
+  const samples = await sampleVideoFrames(video, duration, onProgress);
+  const segments = detectShotBoundaries(samples);
+  const rows = [];
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i];
+    const midpoint = segment.start + (segment.end - segment.start) / 2;
+    onProgress(`正在生成分镜截图… ${i + 1}/${segments.length}`);
+
+    const startFrame = samples[segment.startIndex].imageData;
+    const endFrame = samples[segment.endIndex].imageData;
+    const keyFrame = await captureFrameAt(video, midpoint);
+    const bbox = analyzeSubjectRegion(keyFrame.imageData);
+    const motion = detectMotionBetween(startFrame, endFrame);
+    const size = shotSizeFromBBox(bbox);
+    const angle = angleFromBBox(bbox);
+
     rows.push({
-      shot: 1,
-      timeRange: "00:00 - 00:02",
-      size: "medium",
-      motion: "locked_off",
-      action: "主体呈现",
-      angle: "eye_level",
-      note: "短视频单镜",
+      shot: rows.length + 1,
+      timeRange: `${formatTime(segment.start)} - ${formatTime(Math.max(segment.end, segment.start + 0.3))}`,
+      size,
+      motion: motion.type,
+      action: describeSubjectAction(bbox, motion),
+      angle,
+      note: motion.note,
+      thumbnail: keyFrame.thumbnail,
     });
   }
 
@@ -372,6 +700,12 @@ function buildStoryboardRows(duration, orientation) {
 }
 
 function renderStoryboard(rows) {
+  if (rows.length === 0) {
+    storyboardBody.innerHTML =
+      '<tr class="empty-row"><td colspan="8">未能从视频中提取有效分镜</td></tr>';
+    return;
+  }
+
   storyboardBody.innerHTML = rows
     .map(
       (row) => `
@@ -383,40 +717,84 @@ function renderStoryboard(rows) {
           <td>${row.action}</td>
           <td>${angleLabels[row.angle] || row.angle}</td>
           <td>${row.note}</td>
+          <td class="shot-thumb"><img src="${row.thumbnail}" alt="镜${row.shot}画面" loading="lazy" /></td>
         </tr>
       `,
     )
     .join("");
 }
 
-function analyzeVideo(file) {
+function resetStoryboard(message) {
+  storyboardBody.innerHTML = `<tr class="empty-row"><td colspan="8">${message}</td></tr>`;
+}
+
+async function analyzeVideo(file) {
   if (!file || !file.type.startsWith("video/")) {
     videoStatus.textContent = "请上传有效视频文件";
     return;
   }
 
-  videoStatus.textContent = "正在生成分镜表…";
+  if (activeVideoUrl) {
+    URL.revokeObjectURL(activeVideoUrl);
+    activeVideoUrl = null;
+  }
+
+  videoStatus.textContent = "正在加载视频…";
+  resetStoryboard("正在抽帧分析，请稍候…");
+
   const objectUrl = URL.createObjectURL(file);
+  activeVideoUrl = objectUrl;
   videoPreview.src = objectUrl;
   videoPlaceholder.classList.add("hidden");
   videoPreviewWrap.classList.remove("hidden");
 
-  videoPreview.onloadedmetadata = () => {
-    const duration = Number.isFinite(videoPreview.duration) ? videoPreview.duration : 10;
-    const orientation =
-      videoPreview.videoWidth && videoPreview.videoHeight
-        ? orientationFromSize(videoPreview.videoWidth, videoPreview.videoHeight)
-        : "portrait";
-    const rows = buildStoryboardRows(duration, orientation);
-    renderStoryboard(rows);
-    videoStatus.textContent = `已生成 ${rows.length} 个分镜 · 时长 ${formatTime(duration)}`;
-    URL.revokeObjectURL(objectUrl);
+  const waitForVideoData = () =>
+    new Promise((resolve) => {
+      if (videoPreview.readyState >= 2) {
+        resolve();
+        return;
+      }
+      videoPreview.addEventListener("loadeddata", resolve, { once: true });
+    });
+
+  const onReady = async () => {
+    videoPreview.removeEventListener("loadedmetadata", onReady);
+    videoPreview.removeEventListener("error", onError);
+
+    const duration = Number.isFinite(videoPreview.duration) ? videoPreview.duration : 0;
+    if (!duration || duration <= 0) {
+      videoStatus.textContent = "无法读取视频时长";
+      resetStoryboard("视频元数据读取失败");
+      return;
+    }
+
+    try {
+      await waitForVideoData();
+      videoPreview.pause();
+      const rows = await buildStoryboardFromVideo(videoPreview, duration, (message) => {
+        videoStatus.textContent = message;
+      });
+      renderStoryboard(rows);
+      videoStatus.textContent = `真实抽帧完成 · ${rows.length} 个分镜 · 时长 ${formatTime(duration)}`;
+    } catch (error) {
+      videoStatus.textContent = "分镜分析失败，请重试";
+      resetStoryboard(error.message || "分镜分析失败");
+    }
   };
 
-  videoPreview.onerror = () => {
+  const onError = () => {
+    videoPreview.removeEventListener("loadedmetadata", onReady);
+    videoPreview.removeEventListener("error", onError);
     videoStatus.textContent = "视频加载失败，请重试";
-    URL.revokeObjectURL(objectUrl);
+    resetStoryboard("视频加载失败，请重试");
+    if (activeVideoUrl) {
+      URL.revokeObjectURL(activeVideoUrl);
+      activeVideoUrl = null;
+    }
   };
+
+  videoPreview.addEventListener("loadedmetadata", onReady);
+  videoPreview.addEventListener("error", onError);
 }
 
 function setupUploadZone(zone, input, onFile) {
