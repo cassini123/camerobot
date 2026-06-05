@@ -5,6 +5,90 @@
 
 > 产品心智：摄影界的智能航空母舰。
 
+## 0. 当前可运行程序：MVP0 软件骨架
+
+这个仓库现在包含一个无外部依赖的 Python MVP0，用来验证最核心的软件链路：
+
+```text
+本地参考图/视频 -> 素材登记 -> 参考分析 -> 镜头规划 -> 眼睛显示屏事件
+```
+
+当前程序还不是完整 CV 模型，也没有连接真实机器人硬件。它先把数据结构、接口和
+执行流程跑通，后续可以逐步替换成真实图像识别、深度估计、灯光估计和硬件控制。
+
+### 0.1 程序结构
+
+```text
+camerobot/
+  assets.py              # 本地参考素材登记，读取 PNG/JPEG 尺寸
+  reference_analysis.py  # 参考图分析，当前为可替换的确定性规则
+  planner.py             # 生成底盘、升降、云台、相机、灯光、手臂、无人机计划
+  face_display.py        # 眼睛显示屏状态：构图、倒计时、拍摄完成、预览、提示
+  pipeline.py            # 端到端流程封装
+  cli.py                 # 命令行入口
+  server.py              # 本地 HTTP API
+tests/
+  test_mvp0.py           # MVP0 单元测试
+```
+
+### 0.2 命令行运行
+
+分析参考图：
+
+```bash
+python3 -m camerobot.cli analyze --asset /path/to/reference.png
+```
+
+生成完整 shot plan：
+
+```bash
+python3 -m camerobot.cli simulate \
+  --asset /path/to/reference.png \
+  --intent improve_portrait
+```
+
+允许无人机规划：
+
+```bash
+python3 -m camerobot.cli simulate \
+  --asset /path/to/reference.png \
+  --intent drone_reveal \
+  --use-drone
+```
+
+### 0.3 本地 HTTP API
+
+启动服务：
+
+```bash
+python3 -m camerobot.server --host 127.0.0.1 --port 8080
+```
+
+请求生成 shot plan：
+
+```bash
+curl -X POST http://127.0.0.1:8080/shot-requests \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "asset_path": "/path/to/reference.png",
+    "intent": "replicate_composition",
+    "output": "portrait_photo",
+    "constraints": {
+      "indoor": true,
+      "max_distance_m": 4.0,
+      "use_drone": false,
+      "allow_arm_motion": true,
+      "allow_lighting_adjustment": true
+    }
+  }'
+```
+
+### 0.4 测试
+
+```bash
+python3 -m unittest discover -s tests
+```
+
 ## 1. 产品定位
 
 Camerobot 不是“带摄像头的移动机器人”，而是一个能理解视觉语言、执行摄影动作、
