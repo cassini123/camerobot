@@ -83,22 +83,165 @@
         </div>
       </section>
 
-      <section id="software" class="section split">
-        <div>
-          <p class="eyebrow">Software Loop</p>
-          <h2>从参考画面到机器人动作</h2>
-          <p>
-            MVP0 先跑通软件闭环：上传/登记参考图，生成结构化分析，再输出底盘、
-            升降、云台、相机、摇臂、灯光和眼睛屏事件。
-          </p>
+      <section id="software" class="section">
+        <div class="split">
+          <div>
+            <p class="eyebrow">Software Loop</p>
+            <h2>从参考画面到机器人动作</h2>
+            <p>
+              MVP0 先跑通软件闭环：上传/登记参考图，生成结构化分析，再输出底盘、
+              升降、云台、相机、摇臂、灯光和眼睛屏事件。
+            </p>
+          </div>
+          <ol class="pipeline">
+            <li><span>01</span>参考图 / 视频上传</li>
+            <li><span>02</span>主体、构图、机位、光线分析</li>
+            <li><span>03</span>生成 Shot Plan</li>
+            <li><span>04</span>控制身体各部位</li>
+            <li><span>05</span>眼睛屏显示拍摄状态和预览</li>
+          </ol>
         </div>
-        <ol class="pipeline">
-          <li><span>01</span>参考图 / 视频上传</li>
-          <li><span>02</span>主体、构图、机位、光线分析</li>
-          <li><span>03</span>生成 Shot Plan</li>
-          <li><span>04</span>控制身体各部位</li>
-          <li><span>05</span>眼睛屏显示拍摄状态和预览</li>
-        </ol>
+
+        <div class="workbench">
+          <div class="workbench-header">
+            <p class="eyebrow">Software Workbench</p>
+            <h3>参考素材分析工作台</h3>
+            <p>上传参考图或视频，在浏览器本地生成主体轮廓草图、机位动线与分镜表。</p>
+          </div>
+
+          <div class="workbench-tabs" role="tablist" aria-label="工作台模式">
+            <button
+              class="workbench-tab active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="photo-panel"
+              id="tab-photo"
+              data-tab="photo"
+            >
+              参考图分析
+            </button>
+            <button
+              class="workbench-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="video-panel"
+              id="tab-video"
+              data-tab="video"
+            >
+              视频分镜
+            </button>
+          </div>
+
+          <div
+            id="photo-panel"
+            class="workbench-panel active"
+            role="tabpanel"
+            aria-labelledby="tab-photo"
+          >
+            <div class="workbench-layout">
+              <div class="upload-zone" id="photo-upload-zone">
+                <input
+                  id="photo-input"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  hidden
+                />
+                <div class="upload-placeholder" id="photo-placeholder">
+                  <span class="upload-icon">📷</span>
+                  <strong>上传参考照片</strong>
+                  <span>支持 PNG / JPEG / WebP</span>
+                  <button class="button secondary" type="button" id="photo-pick-btn">
+                    选择图片
+                  </button>
+                </div>
+                <div class="upload-preview hidden" id="photo-preview-wrap">
+                  <img id="photo-preview" alt="参考图预览" />
+                  <button class="button secondary upload-replace" type="button" id="photo-replace-btn">
+                    更换图片
+                  </button>
+                </div>
+              </div>
+
+              <div class="analysis-output">
+                <div class="analysis-toolbar">
+                  <span class="analysis-label">主体位置轮廓草图 · 摄影机空间动线</span>
+                  <span class="analysis-status" id="photo-status">等待上传参考图</span>
+                </div>
+                <div class="canvas-wrap">
+                  <canvas id="photo-canvas" aria-label="主体轮廓与机位动线"></canvas>
+                  <div class="canvas-legend">
+                    <span class="legend-item subject">主体轮廓</span>
+                    <span class="legend-item camera">机位动线</span>
+                    <span class="legend-item grid">构图网格</span>
+                  </div>
+                </div>
+                <div class="analysis-meta" id="photo-meta"></div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            id="video-panel"
+            class="workbench-panel"
+            role="tabpanel"
+            aria-labelledby="tab-video"
+            hidden
+          >
+            <div class="workbench-layout">
+              <div class="upload-zone" id="video-upload-zone">
+                <input
+                  id="video-input"
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime"
+                  hidden
+                />
+                <div class="upload-placeholder" id="video-placeholder">
+                  <span class="upload-icon">🎬</span>
+                  <strong>上传参考视频</strong>
+                  <span>支持 MP4 / WebM / MOV</span>
+                  <button class="button secondary" type="button" id="video-pick-btn">
+                    选择视频
+                  </button>
+                </div>
+                <div class="upload-preview hidden" id="video-preview-wrap">
+                  <video id="video-preview" controls muted playsinline></video>
+                  <button class="button secondary upload-replace" type="button" id="video-replace-btn">
+                    更换视频
+                  </button>
+                </div>
+              </div>
+
+              <div class="analysis-output">
+                <div class="analysis-toolbar">
+                  <span class="analysis-label">智能分镜表</span>
+                  <span class="analysis-status" id="video-status">等待上传视频</span>
+                </div>
+                <div class="storyboard-wrap">
+                  <table class="storyboard-table" id="storyboard-table">
+                    <thead>
+                      <tr>
+                        <th>镜号</th>
+                        <th>时间</th>
+                        <th>景别</th>
+                        <th>运镜</th>
+                        <th>主体动作</th>
+                        <th>机位</th>
+                        <th>备注</th>
+                      </tr>
+                    </thead>
+                    <tbody id="storyboard-body">
+                      <tr class="empty-row">
+                        <td colspan="7">上传视频后自动生成分镜表</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section id="demo" class="section demo-section">
@@ -167,5 +310,6 @@
     </footer>
 
     <script src="/app.js"></script>
+    <script src="/workbench.js"></script>
   </body>
 </html>
