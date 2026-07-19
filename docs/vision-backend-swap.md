@@ -57,9 +57,13 @@ set_vision_backend(YoloVisionBackend())
 5. 验收：同一张图 `photo` 输出里 `vision_backend` 不再是 `yolo_fallback_heuristic`，框应贴合真人。
 6. 可选：加 ByteTrack 做视频轨，仍写回同一 `VisionDetection`。
 
-结构透视图（工业设计）：
+结构图（黑白线稿，优先看这个）：
 
-![Camerobot Plus structure](assets/camerobot-plus-structure-perspective.png)
+![Camerobot Plus structure lineart](assets/camerobot-plus-structure-lineart.png)
+
+工业设计透视图：
+
+![Camerobot Plus structure render](assets/camerobot-plus-structure-perspective.png)
 
 ## 4. 色轮与相机参数（照片模式字段）
 

@@ -29,7 +29,8 @@
 | [docs/solar-array-and-tracking.md](docs/solar-array-and-tracking.md) | **100 W / ~0.5 m²** 阵列 + 太阳高度角仰角跟踪 |
 | [docs/test-stack-a7m4-mini4pro.md](docs/test-stack-a7m4-mini4pro.md) | 开发测试栈：Sony A7M4 + DJI Mini 4 Pro |
 | [docs/vision-backend-swap.md](docs/vision-backend-swap.md) | 视觉模块：启发式 vs YOLO、色轮、相机参数、换模步骤 |
-| [docs/assets/camerobot-plus-structure-perspective.png](docs/assets/camerobot-plus-structure-perspective.png) | Plus 结构透视图（工业设计概念） |
+| [docs/assets/camerobot-plus-structure-lineart.png](docs/assets/camerobot-plus-structure-lineart.png) | Plus **黑白线稿结构图**（标注部件） |
+| [docs/assets/camerobot-plus-structure-perspective.png](docs/assets/camerobot-plus-structure-perspective.png) | Plus 工业设计透视图（概念渲染） |
 
 **Everec 集成边界：** Knowgo 分镜 + Simcut 成片在创作者端；Camerobot 负责执行与
 机载 CV。不要把 everec 整仓嵌入 MCU。真检测（YOLO 类）是独立边缘栈，不是
