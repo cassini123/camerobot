@@ -26,6 +26,7 @@
 | [docs/sku-hardware.md](docs/sku-hardware.md) | Base / Plus 硬件结构、BOM 级模块、接口、无人机舱分期 |
 | [docs/edge-vision-and-everec.md](docs/edge-vision-and-everec.md) | 边缘模型档位、与 [everec](https://github.com/cassini123/everec) 的 JSON 契约、成片链路 |
 | [docs/power-budget-24h.md](docs/power-budget-24h.md) | 功耗账、**多电池 + 太阳能**容量建议、升降耗电、24h 口径 |
+| [docs/solar-array-and-tracking.md](docs/solar-array-and-tracking.md) | **100 W / ~0.5 m²** 阵列 + 太阳高度角仰角跟踪 |
 | [docs/test-stack-a7m4-mini4pro.md](docs/test-stack-a7m4-mini4pro.md) | 开发测试栈：Sony A7M4 + DJI Mini 4 Pro |
 
 **Everec 集成边界：** Knowgo 分镜 + Simcut 成片在创作者端；Camerobot 负责执行与
