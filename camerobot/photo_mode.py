@@ -1,12 +1,14 @@
 """Photo mode: upload a still and parse viewpoint / subject / light / look / color.
 
-Uses deterministic heuristics plus optional PNG RGB sampling. Real YOLO / lighting
-models can replace the internals while keeping `PhotoModeResult` stable.
+Uses pluggable vision backends (heuristic or YOLO) plus PNG RGB sampling,
+HSV color-wheel mapping, and a full camera-parameter block (EXIF or estimated).
 """
 
 from __future__ import annotations
 
 from camerobot.assets import register_reference_asset
+from camerobot.camera_params import build_camera_parameters
+from camerobot.color_wheel import build_color_wheel_report
 from camerobot.image_stats import sample_image_look
 from camerobot.models import Intent, ReferenceAnalysis, ReferenceAsset, to_jsonable
 from camerobot.reference_analysis import analyze_reference
@@ -28,6 +30,7 @@ def run_photo_mode(
         "asset": asset,
         "photo": result,
         "analysis": analysis,
+        "vision_backend": analysis.subject.get("vision_backend", "unknown"),
     }
 
 
@@ -39,6 +42,7 @@ def build_photo_mode_result(
     lighting = _enrich_lighting(analysis.lighting, stats)
     color = _estimate_color(stats, lighting)
     look = _estimate_look(analysis, color, stats)
+    camera_parameters = build_camera_parameters(asset, analysis, stats=stats)
     viewpoint = {
         "angle": analysis.camera["angle"],
         "height_m": analysis.camera["height_m"],
@@ -61,6 +65,8 @@ def build_photo_mode_result(
         ),
         "headroom_ratio": analysis.composition["headroom_ratio"],
         "negative_space": analysis.composition["negative_space"],
+        "vision_backend": analysis.subject.get("vision_backend"),
+        "detection_confidence": analysis.subject.get("detection_confidence"),
     }
     replicate_targets = {
         "match_subject_center_norm": subject["center_norm"],
@@ -71,7 +77,18 @@ def build_photo_mode_result(
         "match_key_direction": lighting["key_direction"],
         "match_temperature_k": lighting["temperature_k"],
         "match_color_grade": color["grade_hint"],
+        "match_color_wheel_sector": color["wheel"]["primary_sector"],
         "match_look": look["effect_summary"],
+        "match_camera_parameters": {
+            "iso": camera_parameters["iso"],
+            "aperture_f": camera_parameters["aperture_f"],
+            "shutter_speed_s": camera_parameters["shutter_speed_s"],
+            "focal_length_mm": camera_parameters["focal_length_mm"],
+            "white_balance_temperature_k": camera_parameters[
+                "white_balance_temperature_k"
+            ],
+            "exposure_compensation_ev": camera_parameters["exposure_compensation_ev"],
+        },
     }
     confidence = analysis.confidence
     if stats:
@@ -83,12 +100,13 @@ def build_photo_mode_result(
         "lighting": lighting,
         "look": look,
         "color": color,
+        "camera_parameters": camera_parameters,
         "replicate_targets": replicate_targets,
         "confidence": round(confidence, 3),
         "source_stats": stats,
         "notes": [
-            "Heuristic photo parse for contract lock-in.",
-            "Replace subject/lighting estimators with edge CV when available.",
+            "Subject box from vision backend (heuristic or YOLO).",
+            "Color uses HSV 12-sector wheel; camera_parameters prefer EXIF then estimate.",
         ],
     }
 
@@ -149,6 +167,9 @@ def _estimate_color(
     lighting: dict[str, object],
 ) -> dict[str, object]:
     temperature_k = int(lighting["temperature_k"])
+    avg_rgb = None if not stats else list(stats["avg_rgb"])  # type: ignore[arg-type]
+    wheel = build_color_wheel_report(avg_rgb, temperature_k=temperature_k)
+
     if not stats:
         return {
             "temperature_k": temperature_k,
@@ -157,6 +178,7 @@ def _estimate_color(
             "palette_hint": "neutral",
             "grade_hint": "natural",
             "avg_rgb": None,
+            "wheel": wheel,
         }
 
     avg_r, avg_g, avg_b = stats["avg_rgb"]  # type: ignore[misc]
@@ -181,6 +203,13 @@ def _estimate_color(
     elif temperature_k > 6500:
         grade = "cool_crisp"
 
+    # Tie grade language to wheel sector warmth.
+    sector = wheel["primary_sector"]
+    if sector in {"red", "red_orange", "orange", "yellow_orange", "yellow"}:
+        palette = f"warm_{palette}"
+    elif sector in {"blue_green", "blue", "blue_violet", "violet"}:
+        palette = f"cool_{palette}"
+
     return {
         "temperature_k": temperature_k,
         "white_balance_hint": _wb_label(temperature_k),
@@ -188,6 +217,7 @@ def _estimate_color(
         "palette_hint": palette,
         "grade_hint": grade,
         "avg_rgb": [int(avg_r), int(avg_g), int(avg_b)],
+        "wheel": wheel,
     }
 
 
@@ -210,6 +240,7 @@ def _estimate_look(
         f"{dof}_dof",
         str(color["grade_hint"]),
         str(analysis.lighting.get("softness", "soft")) + "_light",
+        f"wheel_{color['wheel']['primary_sector']}",
     ]
     if vignette:
         effect_parts.append("soft_vignette")
@@ -221,6 +252,7 @@ def _estimate_look(
             analysis.composition["shot_size"],
             analysis.camera["angle"],
             color["grade_hint"],
+            color["wheel"]["primary_sector"],
         ],
         "effect_summary": "+".join(effect_parts),
         "film_grain_hint": "none",

@@ -15,10 +15,14 @@ from camerobot.models import (
     StoryboardShot,
     to_jsonable,
 )
+from camerobot.color_wheel import build_color_wheel_report, wheel_sector
 from camerobot.photo_mode import run_photo_mode
 from camerobot.pipeline import run_shot_pipeline
 from camerobot.reference_analysis import analyze_reference
 from camerobot.video_mode import run_video_mode
+from camerobot.vision import get_vision_backend, set_vision_backend
+from camerobot.vision.heuristic_backend import HeuristicVisionBackend
+from camerobot.vision.yolo_backend import YoloVisionBackend
 
 
 def write_minimal_png(path: Path, width: int, height: int) -> None:
@@ -206,10 +210,44 @@ class CamerobotMVP0Tests(unittest.TestCase):
             self.assertIn("lighting", photo)
             self.assertIn("look", photo)
             self.assertIn("color", photo)
+            self.assertIn("camera_parameters", photo)
             self.assertIn("replicate_targets", photo)
             self.assertEqual(photo["lighting"]["estimation"], "png_rgb_sample")
             self.assertLess(photo["color"]["temperature_k"], 5500)
+            self.assertEqual(photo["color"]["wheel"]["model"], "hsv_12_sector_wheel")
+            self.assertIn("primary_sector", photo["color"]["wheel"])
+            self.assertIn("iso", photo["camera_parameters"])
+            self.assertIn("aperture_f", photo["camera_parameters"])
+            self.assertIn("shutter_speed_s", photo["camera_parameters"])
+            self.assertIn("focal_length_mm", photo["camera_parameters"])
+            self.assertIn(
+                "match_camera_parameters",
+                photo["replicate_targets"],
+            )
+            self.assertEqual(result["vision_backend"], "heuristic")
             self.assertIn("match_subject_center_norm", photo["replicate_targets"])
+
+    def test_color_wheel_sectors_and_yolo_backend_fallback(self) -> None:
+        self.assertEqual(wheel_sector(10), "red")
+        report = build_color_wheel_report([40, 90, 220], temperature_k=6500)
+        self.assertEqual(report["primary_sector"], "blue_green")
+        self.assertIn("complementary_sector", report)
+
+        set_vision_backend(None)
+        try:
+            set_vision_backend(YoloVisionBackend())
+            backend = get_vision_backend()
+            self.assertEqual(backend.name, "yolo")
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "p.png"
+                write_solid_png(image_path, width=32, height=32, rgb=(120, 120, 120))
+                result = run_photo_mode(str(image_path))
+                self.assertEqual(
+                    result["photo"]["subject"]["vision_backend"],
+                    "yolo_fallback_heuristic",
+                )
+        finally:
+            set_vision_backend(HeuristicVisionBackend())
 
     def test_video_mode_builds_timeline_and_drone_rig_hint(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
