@@ -4,6 +4,7 @@
 
 - [edge-vision-and-everec.md](edge-vision-and-everec.md)
 - [power-budget-24h.md](power-budget-24h.md)
+- [test-stack-a7m4-mini4pro.md](test-stack-a7m4-mini4pro.md)（开发测试：A7M4 + Mini 4 Pro）
 
 ## 1. SKU 总览
 

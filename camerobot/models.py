@@ -74,6 +74,17 @@ class StoryboardShot:
     camera_movement: str = "static"
     implementation: str = ""
     subject_hint: str | None = None
+    duration_s: float | None = None
+    reference_asset_path: str | None = None
+    look_hint: str | None = None
+    drone_role: str | None = None
+
+    @property
+    def resolved_duration_s(self) -> float:
+        if self.duration_s is not None and self.duration_s > 0:
+            return float(self.duration_s)
+        span = float(self.end_s) - float(self.start_s)
+        return span if span > 0 else 3.0
 
 
 @dataclass(frozen=True)

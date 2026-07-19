@@ -147,15 +147,24 @@ Edge Vision 每帧（或降采样）输出：
 - 小幅 → `head` 云台
 - 光比/色温 → `lights` + 相机曝光锁
 
-## 6. 集成阶段
+## 6. 产品模式（已落地契约）
+
+| 模式 | 入口 | 输出要点 |
+|------|------|----------|
+| **照片模式** | CLI `photo` / `POST /photo-mode` | `viewpoint` / `subject` / `lighting` / `look` / `color` / `replicate_targets` |
+| **视频分镜模式** | CLI `video` / `POST /video-mode` | 逐镜 photo 解析 + `movement` 轴 + `hardware_plan` + 时间轴 |
+
+测试设备约定：地面 **Sony A7M4**，航拍视觉复原 **DJI Mini 4 Pro**（见 [test-stack-a7m4-mini4pro.md](test-stack-a7m4-mini4pro.md)）。
+
+## 7. 集成阶段
 
 | 阶段 | 内容 |
 |------|------|
-| 现在 | MVP0：`storyboard_shots` 字段透传；文档契约 |
-| 下一步 | 真检测替换启发式 `reference_analysis`；marker 写入 |
+| 现在 | MVP0：照片/视频模式契约；`storyboard_shots` 透传 |
+| 下一步 | 真检测替换启发式 `reference_analysis`；Mini 4 Pro 素材闭环；marker 写入 |
 | 再后 | Knowgo 导出按钮 → Camerobot API；Simcut 从 `CaptureTake` 生成 EditPlan |
 
-## 7. 明确不做
+## 8. 明确不做
 
 - 把整个 everec monorepo 编进 MCU/固件。
 - 用 everec 本地 stub analyze 充当机载 YOLO。

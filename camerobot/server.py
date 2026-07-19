@@ -8,14 +8,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from camerobot.models import (
-    Intent,
-    OutputType,
-    ShotConstraints,
-    StoryboardShot,
-    to_jsonable,
-)
+from camerobot.models import Intent, OutputType, ShotConstraints, to_jsonable
+from camerobot.photo_mode import run_photo_mode
 from camerobot.pipeline import run_shot_pipeline
+from camerobot.video_mode import parse_storyboard_payload, run_video_mode
 
 
 class CamerobotRequestHandler(BaseHTTPRequestHandler):
@@ -30,13 +26,19 @@ class CamerobotRequestHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib method name
-        if self.path != "/shot-requests":
+        routes = {
+            "/shot-requests": self._handle_shot_request,
+            "/photo-mode": self._handle_photo_mode,
+            "/video-mode": self._handle_video_mode,
+        }
+        handler = routes.get(self.path)
+        if handler is None:
             self._send_json({"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
             return
 
         try:
             payload = self._read_json_body()
-            result = self._handle_shot_request(payload)
+            result = handler(payload)
         except Exception as exc:  # pragma: no cover - exercised manually by clients
             self._send_json(
                 {"error": type(exc).__name__, "message": str(exc)},
@@ -65,37 +67,43 @@ class CamerobotRequestHandler(BaseHTTPRequestHandler):
                     constraints_payload.get("allow_lighting_adjustment", True)
                 ),
             ),
-            storyboard_shots=self._parse_storyboard_shots(
-                payload.get("storyboard_shots", [])
+            storyboard_shots=parse_storyboard_payload(
+                payload.get("storyboard_shots", []),
+                allow_empty=True,
             ),
         )
 
-    def _parse_storyboard_shots(self, raw_shots: Any) -> list[StoryboardShot]:
-        if not raw_shots:
-            return []
-        if not isinstance(raw_shots, list):
-            raise ValueError("storyboard_shots must be a list")
+    def _handle_photo_mode(self, payload: dict[str, Any]) -> dict[str, object]:
+        return run_photo_mode(
+            str(payload["asset_path"]),
+            intent=Intent(payload.get("intent", Intent.REPLICATE_COMPOSITION.value)),
+        )
 
-        shots: list[StoryboardShot] = []
-        for item in raw_shots:
-            if not isinstance(item, dict):
-                raise ValueError("each storyboard shot must be an object")
-            shots.append(
-                StoryboardShot(
-                    index=int(item.get("index", len(shots))),
-                    start_s=float(item.get("start_s", 0.0)),
-                    end_s=float(item.get("end_s", 0.0)),
-                    shot_type=str(item.get("shot_type", "medium")),
-                    camera_movement=str(item.get("camera_movement", "static")),
-                    implementation=str(item.get("implementation", "")),
-                    subject_hint=(
-                        None
-                        if item.get("subject_hint") is None
-                        else str(item.get("subject_hint"))
-                    ),
-                )
-            )
-        return shots
+    def _handle_video_mode(self, payload: dict[str, Any]) -> dict[str, object]:
+        constraints_payload = payload.get("constraints", {})
+        shots = parse_storyboard_payload(
+            payload.get("storyboard_shots", payload.get("shots"))
+        )
+        return run_video_mode(
+            shots,
+            fallback_asset_path=(
+                None
+                if payload.get("fallback_asset_path") is None
+                else str(payload.get("fallback_asset_path"))
+            ),
+            intent=Intent(payload.get("intent", Intent.VLOG_FOLLOW.value)),
+            constraints=ShotConstraints(
+                indoor=bool(constraints_payload.get("indoor", True)),
+                max_distance_m=float(constraints_payload.get("max_distance_m", 4.0)),
+                use_drone=bool(constraints_payload.get("use_drone", False)),
+                allow_arm_motion=bool(
+                    constraints_payload.get("allow_arm_motion", True)
+                ),
+                allow_lighting_adjustment=bool(
+                    constraints_payload.get("allow_lighting_adjustment", True)
+                ),
+            ),
+        )
 
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

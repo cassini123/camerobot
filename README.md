@@ -25,7 +25,8 @@
 |------|------|
 | [docs/sku-hardware.md](docs/sku-hardware.md) | Base / Plus 硬件结构、BOM 级模块、接口、无人机舱分期 |
 | [docs/edge-vision-and-everec.md](docs/edge-vision-and-everec.md) | 边缘模型档位、与 [everec](https://github.com/cassini123/everec) 的 JSON 契约、成片链路 |
-| [docs/power-budget-24h.md](docs/power-budget-24h.md) | 功耗账、热插拔/回充策略、**24h 续航对外口径** |
+| [docs/power-budget-24h.md](docs/power-budget-24h.md) | 功耗账、**多电池 + 太阳能**容量建议、升降耗电、24h 口径 |
+| [docs/test-stack-a7m4-mini4pro.md](docs/test-stack-a7m4-mini4pro.md) | 开发测试栈：Sony A7M4 + DJI Mini 4 Pro |
 
 **Everec 集成边界：** Knowgo 分镜 + Simcut 成片在创作者端；Camerobot 负责执行与
 机载 CV。不要把 everec 整仓嵌入 MCU。真检测（YOLO 类）是独立边缘栈，不是
@@ -66,10 +67,54 @@ tests/
 
 ### 0.2 命令行运行
 
-分析参考图：
+分析参考图（底层启发式）：
 
 ```bash
 python3 -m camerobot.cli analyze --asset /path/to/reference.png
+```
+
+**照片模式**（机位视角 / 人物位置 / 光照 / 效果 / 色彩）：
+
+```bash
+python3 -m camerobot.cli photo --asset /path/to/reference.png
+```
+
+**视频分镜模式**（分镜 JSON：参考图、运镜、时长等）：
+
+```bash
+python3 -m camerobot.cli video \
+  --storyboard /path/to/storyboard.json \
+  --fallback-asset /path/to/default.png \
+  --use-drone
+```
+
+`storyboard.json` 示例：
+
+```json
+{
+  "intent": "vlog_follow",
+  "constraints": { "indoor": false, "use_drone": true },
+  "storyboard_shots": [
+    {
+      "index": 0,
+      "duration_s": 4,
+      "shot_type": "wide",
+      "camera_movement": "drone_reveal",
+      "reference_asset_path": "/path/to/aerial_still.png",
+      "drone_role": "establishing",
+      "implementation": "Mini 4 Pro 建立镜头"
+    },
+    {
+      "index": 1,
+      "duration_s": 5,
+      "shot_type": "medium",
+      "camera_movement": "push_in",
+      "reference_asset_path": "/path/to/ground_still.png",
+      "look_hint": "natural_portrait",
+      "implementation": "A7M4 推进"
+    }
+  ]
+}
 ```
 
 生成完整 shot plan：
@@ -95,6 +140,40 @@ python3 -m camerobot.cli simulate \
 
 ```bash
 python3 -m camerobot.server --host 127.0.0.1 --port 8080
+```
+
+照片模式：
+
+```bash
+curl -X POST http://127.0.0.1:8080/photo-mode \
+  -H 'Content-Type: application/json' \
+  -d '{"asset_path": "/path/to/reference.png", "intent": "replicate_composition"}'
+```
+
+视频分镜模式：
+
+```bash
+curl -X POST http://127.0.0.1:8080/video-mode \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fallback_asset_path": "/path/to/default.png",
+    "intent": "vlog_follow",
+    "constraints": {"indoor": false, "use_drone": true},
+    "storyboard_shots": [
+      {
+        "index": 0,
+        "duration_s": 4,
+        "camera_movement": "drone_reveal",
+        "reference_asset_path": "/path/to/aerial.png"
+      },
+      {
+        "index": 1,
+        "duration_s": 5,
+        "camera_movement": "push_in",
+        "reference_asset_path": "/path/to/ground.png"
+      }
+    ]
+  }'
 ```
 
 请求生成 shot plan：
