@@ -8,7 +8,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from camerobot.models import Intent, OutputType, ShotConstraints, to_jsonable
+from camerobot.models import (
+    Intent,
+    OutputType,
+    ShotConstraints,
+    StoryboardShot,
+    to_jsonable,
+)
 from camerobot.pipeline import run_shot_pipeline
 
 
@@ -59,7 +65,37 @@ class CamerobotRequestHandler(BaseHTTPRequestHandler):
                     constraints_payload.get("allow_lighting_adjustment", True)
                 ),
             ),
+            storyboard_shots=self._parse_storyboard_shots(
+                payload.get("storyboard_shots", [])
+            ),
         )
+
+    def _parse_storyboard_shots(self, raw_shots: Any) -> list[StoryboardShot]:
+        if not raw_shots:
+            return []
+        if not isinstance(raw_shots, list):
+            raise ValueError("storyboard_shots must be a list")
+
+        shots: list[StoryboardShot] = []
+        for item in raw_shots:
+            if not isinstance(item, dict):
+                raise ValueError("each storyboard shot must be an object")
+            shots.append(
+                StoryboardShot(
+                    index=int(item.get("index", len(shots))),
+                    start_s=float(item.get("start_s", 0.0)),
+                    end_s=float(item.get("end_s", 0.0)),
+                    shot_type=str(item.get("shot_type", "medium")),
+                    camera_movement=str(item.get("camera_movement", "static")),
+                    implementation=str(item.get("implementation", "")),
+                    subject_hint=(
+                        None
+                        if item.get("subject_hint") is None
+                        else str(item.get("subject_hint"))
+                    ),
+                )
+            )
+        return shots
 
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))

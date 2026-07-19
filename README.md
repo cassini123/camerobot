@@ -13,8 +13,26 @@
 本地参考图/视频 -> 素材登记 -> 参考分析 -> 镜头规划 -> 眼睛显示屏事件
 ```
 
+可选输入 Everec/Knowgo 风格的 `storyboard_shots`，由 planner 透传到 `ShotPlan`
+（并据此给出 Plus 横向滑轨 `extend` 提示）。机载实时视觉与一键成片边界见文档。
+
 当前程序还不是完整 CV 模型，也没有连接真实机器人硬件。它先把数据结构、接口和
 执行流程跑通，后续可以逐步替换成真实图像识别、深度估计、灯光估计和硬件控制。
+
+### 0.0a 设计文档：Base / Plus SKU、边缘视觉、续航
+
+| 文档 | 内容 |
+|------|------|
+| [docs/sku-hardware.md](docs/sku-hardware.md) | Base / Plus 硬件结构、BOM 级模块、接口、无人机舱分期 |
+| [docs/edge-vision-and-everec.md](docs/edge-vision-and-everec.md) | 边缘模型档位、与 [everec](https://github.com/cassini123/everec) 的 JSON 契约、成片链路 |
+| [docs/power-budget-24h.md](docs/power-budget-24h.md) | 功耗账、热插拔/回充策略、**24h 续航对外口径** |
+
+**Everec 集成边界：** Knowgo 分镜 + Simcut 成片在创作者端；Camerobot 负责执行与
+机载 CV。不要把 everec 整仓嵌入 MCU。真检测（YOLO 类）是独立边缘栈，不是
+everec 内置模型。
+
+**续航口径：** 不承诺 24h 连续录制 + 满血 NPU + 持续移动；承诺「全天间歇跟拍」
+并写明累计有效拍摄小时。详见功耗文档。
 
 ### 0.0 Vercel 静态首页
 
@@ -94,7 +112,17 @@ curl -X POST http://127.0.0.1:8080/shot-requests \
       "use_drone": false,
       "allow_arm_motion": true,
       "allow_lighting_adjustment": true
-    }
+    },
+    "storyboard_shots": [
+      {
+        "index": 0,
+        "start_s": 0.0,
+        "end_s": 3.0,
+        "shot_type": "medium",
+        "camera_movement": "push_in",
+        "implementation": "缓慢推进主体"
+      }
+    ]
   }'
 ```
 

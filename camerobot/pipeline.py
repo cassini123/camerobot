@@ -8,6 +8,7 @@ from camerobot.models import (
     OutputType,
     ShotConstraints,
     ShotRequest,
+    StoryboardShot,
 )
 from camerobot.planner import create_shot_plan
 from camerobot.reference_analysis import analyze_reference
@@ -19,15 +20,18 @@ def run_shot_pipeline(
     intent: Intent = Intent.REPLICATE_COMPOSITION,
     output: OutputType = OutputType.PORTRAIT_PHOTO,
     constraints: ShotConstraints | None = None,
+    storyboard_shots: tuple[StoryboardShot, ...] | list[StoryboardShot] | None = None,
 ) -> dict[str, object]:
     """Run reference registration, analysis, and planning in one call."""
 
+    shots = tuple(storyboard_shots or ())
     asset = register_reference_asset(asset_path)
     request = ShotRequest(
         reference_asset_id=asset.asset_id,
         intent=intent,
         output=output,
         constraints=constraints or ShotConstraints(),
+        storyboard_shots=shots,
     )
     analysis = analyze_reference(asset, intent)
     plan = create_shot_plan(request, analysis)

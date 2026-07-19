@@ -6,6 +6,7 @@ from camerobot.models import (
     ReferenceAsset,
     ShotPlan,
     ShotRequest,
+    StoryboardShot,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ReferenceAsset",
     "ShotPlan",
     "ShotRequest",
+    "StoryboardShot",
 ]

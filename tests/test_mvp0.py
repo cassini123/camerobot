@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 
 from camerobot.assets import register_reference_asset
-from camerobot.models import DisplayState, Intent, ShotConstraints, to_jsonable
+from camerobot.models import (
+    DisplayState,
+    Intent,
+    ShotConstraints,
+    StoryboardShot,
+    to_jsonable,
+)
 from camerobot.pipeline import run_shot_pipeline
 from camerobot.reference_analysis import analyze_reference
 
@@ -99,6 +105,58 @@ class CamerobotMVP0Tests(unittest.TestCase):
 
             self.assertIn("拍摄完毕", encoded)
             self.assertIn("shot_plan", encoded)
+
+    def test_storyboard_shots_passthrough_and_extend_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "follow.png"
+            write_minimal_png(image_path, width=1280, height=720)
+            shots = (
+                StoryboardShot(
+                    index=0,
+                    start_s=0.0,
+                    end_s=3.0,
+                    shot_type="wide",
+                    camera_movement="static",
+                    implementation="建立环境",
+                ),
+                StoryboardShot(
+                    index=1,
+                    start_s=3.0,
+                    end_s=8.0,
+                    shot_type="medium",
+                    camera_movement="push_in",
+                    implementation="推进主体",
+                    subject_hint="person_primary",
+                ),
+            )
+
+            result = run_shot_pipeline(
+                str(image_path),
+                storyboard_shots=shots,
+            )
+            plan = result["shot_plan"]
+
+            self.assertEqual(len(plan.storyboard_shots), 2)
+            self.assertEqual(plan.storyboard_shots[1].camera_movement, "push_in")
+            # Primary movement comes from the first storyboard shot.
+            self.assertEqual(plan.extend["mode"], "standby")
+
+            push_first = run_shot_pipeline(
+                str(image_path),
+                storyboard_shots=(
+                    StoryboardShot(
+                        index=0,
+                        camera_movement="push_in",
+                        shot_type="medium",
+                    ),
+                ),
+            )["shot_plan"]
+            self.assertEqual(push_first.extend["mode"], "rail")
+            self.assertEqual(push_first.extend["trajectory"], "push_in")
+
+            encoded = json.dumps(to_jsonable(result), ensure_ascii=False)
+            self.assertIn("storyboard_shots", encoded)
+            self.assertIn("建立环境", encoded)
 
 
 if __name__ == "__main__":
