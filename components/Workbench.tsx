@@ -6,6 +6,7 @@ import { IntroSplash } from "./IntroSplash";
 import storyData from "@/data/story_boktu.json";
 import spaceData from "@/data/space_heritage_hall.json";
 import { buildExportPayload } from "@/lib/export";
+import { sampleStillFrames } from "@/lib/still-frames";
 import { EXAMPLE_VISUAL_DNA, heuristicDirector, QUICK_PROMPTS } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
@@ -118,6 +119,7 @@ export function Workbench() {
   const [showKb, setShowKb] = useState(false);
   const [dual, setDual] = useState(true);
   const [introDone, setIntroDone] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const finishIntro = useCallback(() => setIntroDone(true), []);
 
   const scene = story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
@@ -255,6 +257,52 @@ export function Workbench() {
     URL.revokeObjectURL(url);
   }
 
+  async function runExport(
+    kind: "json" | "motion" | "preview" | "xlsx" | "pdf",
+  ) {
+    setExportOpen(false);
+    if (kind === "json") {
+      exportJson();
+      return;
+    }
+    dispatch({ type: "busy", busy: "正在导出…" });
+    try {
+      const media = await import("@/lib/media-export");
+      if (kind === "motion") {
+        await media.exportCameraVideo(
+          state.space,
+          state.shots,
+          "motion",
+          "yunjing-camera-move.webm",
+          (label) => dispatch({ type: "busy", busy: `导出运动视频 · ${label}` }),
+        );
+      } else if (kind === "preview") {
+        await media.exportCameraVideo(
+          state.space,
+          state.shots,
+          "preview",
+          "yunjing-preview.webm",
+          (label) => dispatch({ type: "busy", busy: `导出预览视频 · ${label}` }),
+        );
+      } else {
+        const rows = await media.captureStillRows(
+          state.space,
+          state.shots,
+          sampleStillFrames,
+        );
+        if (kind === "xlsx") {
+          await media.exportStillsExcel(rows, "yunjing-stills.xlsx");
+        } else {
+          await media.exportStillsPdf(rows, "yunjing-stills.pdf");
+        }
+      }
+    } catch {
+      dispatch({ type: "busy", busy: "导出失败，请重试" });
+      return;
+    }
+    dispatch({ type: "busy", busy: null });
+  }
+
   const dnaChips = useMemo(() => {
     if (!state.dna) {
       return [];
@@ -288,9 +336,24 @@ export function Workbench() {
           >
             {previewing ? "Stop" : "Preview"}
           </button>
-          <button className="btn" disabled={!state.shots.length} onClick={exportJson}>
-            Export
-          </button>
+          <div className="export-wrap">
+            <button
+              className="btn"
+              disabled={!state.shots.length || state.busy !== null}
+              onClick={() => setExportOpen((v) => !v)}
+            >
+              Export
+            </button>
+            {exportOpen ? (
+              <div className="export-menu" role="menu">
+                <button onClick={() => void runExport("json")}>JSON</button>
+                <button onClick={() => void runExport("motion")}>摄影机运动视频</button>
+                <button onClick={() => void runExport("preview")}>预览视频</button>
+                <button onClick={() => void runExport("xlsx")}>静帧 Excel</button>
+                <button onClick={() => void runExport("pdf")}>PDF</button>
+              </div>
+            ) : null}
+          </div>
           <button
             className="btn primary"
             disabled={state.busy !== null}
