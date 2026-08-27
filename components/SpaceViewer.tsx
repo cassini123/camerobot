@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Line, OrbitControls, PerspectiveCamera } from "@react-three/drei";
+import { Line, OrbitControls } from "@react-three/drei";
 import { useMemo } from "react";
 import type { CameraPath, Shot, SpaceModel, Vec3 } from "@/lib/types";
 import { pathPoints, samplePath } from "@/lib/path-engine";
@@ -159,12 +159,16 @@ export function SpaceViewer({
           <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />
         </Canvas>
         {dual && current ? (
-          <Canvas>
+          <Canvas
+            camera={{
+              position: camPos,
+              fov: Math.max(18, 70 - current.camera.lens * 0.4),
+            }}
+          >
             <color attach="background" args={["#10131a"]} />
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[6, 10, 2]} intensity={1} />
+            <ambientLight intensity={0.65} />
+            <directionalLight position={[6, 10, 2]} intensity={1.15} />
             <HeritageHall space={space} />
-            <PerspectiveCamera makeDefault fov={Math.max(18, 70 - current.camera.lens * 0.4)} />
             <PovRig
               position={camPos}
               target={current.path.target}

@@ -146,6 +146,11 @@ textarea {
   position: relative;
   background: #07080a;
   min-height: 0;
+  height: 100%;
+}
+
+.viewer canvas {
+  display: block;
 }
 
 .viewer-split {

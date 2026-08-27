@@ -74,7 +74,10 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         shots: action.shots,
-        currentShotId: action.shots[0]?.shot_id ?? null,
+        currentShotId:
+          action.shots.find((s) => s.shot_id === "shot_02")?.shot_id ??
+          action.shots[0]?.shot_id ??
+          null,
       };
     case "selectShot":
       return { ...state, currentShotId: action.id };
