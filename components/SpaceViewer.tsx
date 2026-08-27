@@ -3,7 +3,8 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Line, OrbitControls } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CameraPath, Shot, SpaceModel, Vec3 } from "@/lib/types";
+import * as THREE from "three";
+import type { CameraPath, Shot, SpaceModel, SpaceObject, Vec3 } from "@/lib/types";
 import { pathPoints, samplePath } from "@/lib/path-engine";
 
 const TYPE_COLOR: Record<string, string> = {
@@ -17,7 +18,91 @@ const TYPE_COLOR: Record<string, string> = {
   object: "#6b5c7a",
 };
 
-function HeritageHall({ space }: { space: SpaceModel }) {
+function MovableMesh({
+  obj,
+  selected,
+  onSelect,
+  onMove,
+}: {
+  obj: SpaceObject;
+  selected: boolean;
+  onSelect: (id: string | null) => void;
+  onMove: (id: string, position: Vec3, done?: boolean) => void;
+}) {
+  const { camera, gl, raycaster } = useThree();
+  const dragging = useRef(false);
+  const latest = useRef<Vec3>(obj.position);
+  latest.current = obj.position;
+  const height = obj.position[1];
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onMovePtr = (event: PointerEvent) => {
+      if (!dragging.current) {
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -height);
+      if (raycaster.ray.intersectPlane(plane, hit)) {
+        const next: Vec3 = [hit.x, height, hit.z];
+        latest.current = next;
+        onMove(obj.id, next);
+      }
+    };
+    const onUp = () => {
+      if (!dragging.current) {
+        return;
+      }
+      dragging.current = false;
+      onMove(obj.id, latest.current, true);
+    };
+    window.addEventListener("pointermove", onMovePtr);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMovePtr);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [camera, gl, raycaster, height, obj.id, onMove]);
+
+  return (
+    <mesh
+      position={obj.position}
+      castShadow
+      onPointerDown={(event) => {
+        if (event.nativeEvent.button !== 2) {
+          return;
+        }
+        event.stopPropagation();
+        dragging.current = true;
+        onSelect(obj.id);
+      }}
+    >
+      <boxGeometry args={obj.size || [1, 1, 1]} />
+      <meshStandardMaterial
+        color={TYPE_COLOR[obj.type] || "#666"}
+        emissive={selected ? "#5a4630" : "#000000"}
+      />
+    </mesh>
+  );
+}
+
+function HeritageHall({
+  space,
+  selectedId,
+  onSelect,
+  onMove,
+}: {
+  space: SpaceModel;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onMove: (id: string, position: Vec3, done?: boolean) => void;
+}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 6]} receiveShadow>
@@ -35,10 +120,13 @@ function HeritageHall({ space }: { space: SpaceModel }) {
       {space.objects
         .filter((obj) => obj.type !== "ground")
         .map((obj) => (
-          <mesh key={obj.id} position={obj.position} castShadow>
-            <boxGeometry args={obj.size || [1, 1, 1]} />
-            <meshStandardMaterial color={TYPE_COLOR[obj.type] || "#666"} />
-          </mesh>
+          <MovableMesh
+            key={obj.id}
+            obj={obj}
+            selected={obj.id === selectedId}
+            onSelect={onSelect}
+            onMove={onMove}
+          />
         ))}
     </group>
   );
@@ -105,6 +193,9 @@ export function SpaceViewer({
   previewing,
   previewT,
   dual,
+  selectedId,
+  onSelectObject,
+  onMoveObject,
 }: {
   space: SpaceModel;
   shots: Shot[];
@@ -112,6 +203,9 @@ export function SpaceViewer({
   previewing: boolean;
   previewT: number;
   dual: boolean;
+  selectedId: string | null;
+  onSelectObject: (id: string | null) => void;
+  onMoveObject: (id: string, position: Vec3, done?: boolean) => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const camPos = current
@@ -167,6 +261,7 @@ export function SpaceViewer({
     <div
       ref={rootRef}
       className={full ? "viewer is-full" : "viewer"}
+      onContextMenu={(event) => event.preventDefault()}
       onPointerDown={(event) => {
         if (event.button !== 0) {
           return;
@@ -199,7 +294,12 @@ export function SpaceViewer({
           <color attach="background" args={["#07080a"]} />
           <ambientLight intensity={0.55} />
           <directionalLight position={[8, 14, 4]} intensity={1.15} castShadow />
-          <HeritageHall space={space} />
+          <HeritageHall
+            space={space}
+            selectedId={selectedId}
+            onSelect={onSelectObject}
+            onMove={(id, position, done) => onMoveObject(id, position, done)}
+          />
           {shots.map((shot) => (
             <PathLine
               key={shot.shot_id}
@@ -225,7 +325,12 @@ export function SpaceViewer({
               <meshStandardMaterial color="#c45c4a" />
             </mesh>
           ) : null}
-          <OrbitControls makeDefault enableDamping target={[0, 1.2, 6]} />
+          <OrbitControls
+            makeDefault
+            enableDamping
+            enablePan={false}
+            target={[0, 1.2, 6]}
+          />
           <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />
         </Canvas>
         {dual && current ? (
@@ -238,7 +343,12 @@ export function SpaceViewer({
             <color attach="background" args={["#10131a"]} />
             <ambientLight intensity={0.65} />
             <directionalLight position={[6, 10, 2]} intensity={1.15} />
-            <HeritageHall space={space} />
+            <HeritageHall
+              space={space}
+              selectedId={selectedId}
+              onSelect={onSelectObject}
+              onMove={(id, position, done) => onMoveObject(id, position, done)}
+            />
             <PovRig
               position={camPos}
               target={current.path.target}

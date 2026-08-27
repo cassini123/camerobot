@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { IntroSplash } from "./IntroSplash";
+import { ToolDock } from "./ToolDock";
 import storyData from "@/data/story_boktu.json";
 import spaceData from "@/data/space_heritage_hall.json";
 import { buildExportPayload } from "@/lib/export";
@@ -10,6 +11,7 @@ import { sampleStillFrames } from "@/lib/still-frames";
 import { EXAMPLE_VISUAL_DNA, heuristicDirector, QUICK_PROMPTS } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
+import { matchTools, STUDIO_TOOLS } from "@/lib/tools";
 import type {
   DirectorChange,
   DirectorResponse,
@@ -58,7 +60,8 @@ type Action =
   | { type: "instruction"; text: string }
   | { type: "pending"; pending: DirectorResponse | null }
   | { type: "busy"; busy: string | null }
-  | { type: "apply"; shot: Shot };
+  | { type: "apply"; shot: Shot }
+  | { type: "moveObject"; id: string; position: [number, number, number]; rebuild?: boolean };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -97,6 +100,21 @@ function reducer(state: State, action: Action): State {
         ),
         pending: null,
       };
+    case "moveObject": {
+      const space = {
+        ...state.space,
+        objects: state.space.objects.map((obj) =>
+          obj.id === action.id ? { ...obj, position: action.position } : obj,
+        ),
+      };
+      return {
+        ...state,
+        space,
+        shots: action.rebuild
+          ? state.shots.map((shot) => applyPathToShot(shot, space))
+          : state.shots,
+      };
+    }
     default:
       return state;
   }
@@ -120,10 +138,26 @@ export function Workbench() {
   const [dual, setDual] = useState(true);
   const [introDone, setIntroDone] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>("person_01");
   const finishIntro = useCallback(() => setIntroDone(true), []);
 
   const scene = story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
   const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
+  const matchedIds = useMemo(
+    () => matchTools(state.instruction),
+    [state.instruction],
+  );
+  const toolIds = guideOpen ? STUDIO_TOOLS.map((tool) => tool.id) : matchedIds;
+  const selected = state.space.objects.find((obj) => obj.id === selectedId);
+
+  function patchCurrentShot(partial: Record<string, unknown>) {
+    if (!currentShot) {
+      return;
+    }
+    const merged = deepMerge(currentShot, partial) as Shot;
+    dispatch({ type: "apply", shot: applyPathToShot(merged, state.space) });
+  }
 
   useEffect(() => {
     if (!previewing || !currentShot) {
@@ -411,6 +445,16 @@ export function Workbench() {
           previewing={previewing}
           previewT={previewT}
           dual={dual}
+          selectedId={selectedId}
+          onSelectObject={setSelectedId}
+          onMoveObject={(id, position, done) =>
+            dispatch({
+              type: "moveObject",
+              id,
+              position,
+              rebuild: done,
+            })
+          }
         />
 
         <aside className="col">
@@ -447,6 +491,30 @@ export function Workbench() {
           )}
         </aside>
       </div>
+
+      <ToolDock
+        ids={toolIds}
+        currentShot={currentShot}
+        selectedLabel={
+          selected
+            ? `${selected.type} ${selected.id} · 右键拖动，两视口同步`
+            : "按住触控板右键点选并拖动物体"
+        }
+        previewing={previewing}
+        onFollow={() => void runDirector("镜头从人物侧后方跟拍")}
+        onOrbit={() => void runDirector("环绕人物，最后绕到建筑正面")}
+        onDolly={(dir) =>
+          void runDirector(dir === "in" ? "镜头靠近主体，推进" : "镜头拉远，远离主体")
+        }
+        onLens={(value) => patchCurrentShot({ camera: { lens: value } })}
+        onHeight={(value) => patchCurrentShot({ camera: { height: value } })}
+        onSpeed={(value) => patchCurrentShot({ movement: { speed: value } })}
+        onPreview={() => setPreviewing((value) => !value)}
+        onGenerate={() => void generateShots()}
+        onExport={() => setExportOpen(true)}
+        onReference={() => void analyzeReference()}
+        onLanguage={() => setShowKb((value) => !value)}
+      />
 
       <section className="ref-bar">
         <div className="ref-row">
@@ -547,22 +615,15 @@ export function Workbench() {
         <section className="composer" aria-label="Director prompt">
           {state.busy ? <p className="composer-status">{state.busy}</p> : null}
           <div className="composer-shell">
-            <label className="composer-plus" title="上传参考图" aria-label="上传参考图">
+            <button
+              type="button"
+              className={guideOpen ? "composer-plus on" : "composer-plus"}
+              title="引导工具"
+              aria-label="引导工具"
+              onClick={() => setGuideOpen((value) => !value)}
+            >
               +
-              <input
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={async (event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) {
-                    return;
-                  }
-                  const dataUrl = await fileToDataUrl(file);
-                  await analyzeReference(dataUrl);
-                }}
-              />
-            </label>
+            </button>
             <textarea
               className="prompt"
               placeholder="给导演一句话：跟拍、绕到正面、放慢人物…"
@@ -591,13 +652,4 @@ export function Workbench() {
       {introDone ? null : <IntroSplash onDone={finishIntro} />}
     </div>
   );
-}
-
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
