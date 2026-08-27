@@ -111,6 +111,7 @@ textarea {
 .workspace {
   position: relative;
   min-height: 0;
+  height: 100%;
 }
 
 .stage {
@@ -426,20 +427,21 @@ textarea {
 
 .lens-dock {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
-  z-index: 8;
+  left: 18px;
+  bottom: 18px;
+  z-index: 20;
 }
 
 .lens-btn {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(240, 210, 168, 0.45);
   border-radius: 50%;
   color: var(--gold-2);
-  background: rgba(12, 13, 16, 0.78);
+  background: rgba(12, 13, 16, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(16px);
   cursor: pointer;
 }

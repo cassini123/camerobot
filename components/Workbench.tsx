@@ -500,6 +500,7 @@ export function Workbench() {
           </div>
         </section>
       </div>
+      </div>
 
       <div className="lens-dock">
         {showKb ? (
@@ -524,7 +525,6 @@ export function Workbench() {
             <path d="M12 3.8v2.4M12 17.8v2.4M3.8 12h2.4M17.8 12h2.4M6.2 6.2l1.7 1.7M16.1 16.1l1.7 1.7M17.8 6.2l-1.7 1.7M7.9 16.1l-1.7 1.7" />
           </svg>
         </button>
-      </div>
       </div>
       {introDone ? null : <IntroSplash onDone={finishIntro} />}
     </div>
