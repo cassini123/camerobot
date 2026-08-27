@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { DraggablePanel } from "./DraggablePanel";
 import { IntroSplash } from "./IntroSplash";
 import { ToolDock } from "./ToolDock";
 import storyData from "@/data/story_boktu.json";
@@ -550,6 +551,7 @@ export function Workbench() {
 
       <div className="composer-dock">
         {state.pending ? (
+          <DraggablePanel>
           <div className="changes">
             <div className="col-h" style={{ border: "none", padding: "0 0 8px" }}>
               CHANGES
@@ -586,8 +588,10 @@ export function Workbench() {
               </button>
             </div>
           </div>
+          </DraggablePanel>
         ) : null}
 
+        <DraggablePanel>
         <div className="composer-tools">
           <select defaultValue="shot" aria-label="scope">
             <option value="shot">Current Shot</option>
@@ -611,8 +615,11 @@ export function Workbench() {
             </button>
           ))}
         </div>
+        </DraggablePanel>
 
+        <DraggablePanel>
         <section className="composer" aria-label="Director prompt">
+          <div className="drag-handle" aria-hidden />
           {state.busy ? <p className="composer-status">{state.busy}</p> : null}
           <div className="composer-shell">
             <button
@@ -647,6 +654,7 @@ export function Workbench() {
             </button>
           </div>
         </section>
+        </DraggablePanel>
       </div>
       </div>
       {introDone ? null : <IntroSplash onDone={finishIntro} />}

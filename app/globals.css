@@ -410,8 +410,26 @@ textarea {
   gap: 8px;
   width: min(280px, calc(100% - 520px));
   max-height: calc(100% - 220px);
-  overflow: auto;
+  overflow: visible;
   pointer-events: none;
+}
+
+.draggable-panel {
+  width: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+.draggable-panel.dragging {
+  cursor: grabbing;
+}
+
+.drag-handle {
+  width: 42px;
+  height: 4px;
+  margin: 0 auto 8px;
+  border-radius: 99px;
+  background: #d0d0d0;
 }
 
 .tool-card {
