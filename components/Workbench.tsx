@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { IntroSplash } from "./IntroSplash";
 import storyData from "@/data/story_boktu.json";
 import spaceData from "@/data/space_heritage_hall.json";
 import { buildExportPayload } from "@/lib/export";
@@ -116,6 +117,8 @@ export function Workbench() {
   const [previewT, setPreviewT] = useState(0);
   const [showKb, setShowKb] = useState(false);
   const [dual, setDual] = useState(true);
+  const [introDone, setIntroDone] = useState(false);
+  const finishIntro = useCallback(() => setIntroDone(true), []);
 
   const scene = story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
   const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
@@ -273,12 +276,8 @@ export function Workbench() {
       <header className="hdr">
         <div className="brand">
           <b>YUNJING</b>
-          <span>VirtuPath · {story.title} · {scene.title}</span>
         </div>
         <div className="hdr-actions">
-          <button className="btn" onClick={() => setShowKb((v) => !v)}>
-            镜头语言
-          </button>
           <button className="btn" onClick={() => setDual((v) => !v)}>
             {dual ? "单视口" : "双视口"}
           </button>
@@ -302,8 +301,9 @@ export function Workbench() {
         </div>
       </header>
 
+      <div className="workspace">
       <div className="stage">
-        <aside className="col">
+        <aside className="col story-col">
           <div className="col-h">STORY</div>
           {story.scenes.map((item: Scene) => (
             <div
@@ -315,6 +315,30 @@ export function Workbench() {
               <small>{item.description}</small>
             </div>
           ))}
+          <div className="lens-dock">
+            {showKb ? (
+              <aside className="kb">
+                <b>镜头语言</b>
+                {FAQ.map(([k, v]) => (
+                  <p key={k}>
+                    <b>{k}</b> {v}
+                  </p>
+                ))}
+              </aside>
+            ) : null}
+            <button
+              className={showKb ? "lens-btn on" : "lens-btn"}
+              aria-label="镜头语言"
+              title="镜头语言"
+              onClick={() => setShowKb((v) => !v)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="8.2" />
+                <circle cx="12" cy="12" r="3.2" />
+                <path d="M12 3.8v2.4M12 17.8v2.4M3.8 12h2.4M17.8 12h2.4M6.2 6.2l1.7 1.7M16.1 16.1l1.7 1.7M17.8 6.2l-1.7 1.7M7.9 16.1l-1.7 1.7" />
+              </svg>
+            </button>
+          </div>
         </aside>
 
         <SpaceViewer
@@ -362,29 +386,106 @@ export function Workbench() {
       </div>
 
       <section className="ref-bar">
-        <div>
-          <div className="col-h" style={{ border: "none", padding: "0 0 8px" }}>
-            REFERENCE
+        <div className="ref-row">
+          <img
+            className={
+              state.imageDataUrl?.includes("heritage-wide")
+                ? "ref-thumb active"
+                : "ref-thumb"
+            }
+            src="/references/heritage-wide.svg"
+            alt="主参考"
+            onClick={() => analyzeReference("/references/heritage-wide.svg")}
+          />
+          <img
+            className="ref-thumb"
+            src="/references/person-building.svg"
+            alt="人物与建筑"
+            onClick={() => analyzeReference("/references/person-building.svg")}
+          />
+          <button className="btn ghost" onClick={() => analyzeReference()}>
+            Visual DNA
+          </button>
+        </div>
+        <div className="dna">
+          {state.busy ? <span className="chip">{state.busy}</span> : null}
+          {dnaChips.map((chip) => (
+            <span className="chip" key={chip}>
+              {chip}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <div className="composer-dock">
+        {state.pending ? (
+          <div className="changes">
+            <div className="col-h" style={{ border: "none", padding: "0 0 8px" }}>
+              CHANGES
+            </div>
+            {state.pending.changes.map((change, index) => (
+              <div key={`${change.key}-${index}`} className="change">
+                <div>
+                  <div>{change.label}</div>
+                  <small style={{ color: "var(--muted)" }}>
+                    {String(change.from)} → {String(change.to)}
+                  </small>
+                  {change.slider && typeof change.to === "number" ? (
+                    <input
+                      type="range"
+                      min={change.slider.min}
+                      max={change.slider.max}
+                      step={change.slider.step}
+                      value={Number(change.to)}
+                      onChange={(e) =>
+                        updatePending(change, Number(e.target.value))
+                      }
+                      style={{ width: "100%" }}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ))}
+            <div className="dir-row">
+              <button className="btn" onClick={() => dispatch({ type: "pending", pending: null })}>
+                Cancel
+              </button>
+              <button className="btn primary" onClick={applyPending}>
+                Apply
+              </button>
+            </div>
           </div>
-          <div className="ref-row">
-            <img
-              className={
-                state.imageDataUrl?.includes("heritage-wide")
-                  ? "ref-thumb active"
-                  : "ref-thumb"
-              }
-              src="/references/heritage-wide.svg"
-              alt="主参考"
-              onClick={() => analyzeReference("/references/heritage-wide.svg")}
-            />
-            <img
-              className="ref-thumb"
-              src="/references/person-building.svg"
-              alt="人物与建筑"
-              onClick={() => analyzeReference("/references/person-building.svg")}
-            />
-            <label className="btn" style={{ alignSelf: "center" }}>
-              + Upload
+        ) : null}
+
+        <div className="composer-tools">
+          <select defaultValue="shot" aria-label="scope">
+            <option value="shot">Current Shot</option>
+            <option value="scene" disabled>
+              Current Scene
+            </option>
+            <option value="story" disabled>
+              Entire Story
+            </option>
+          </select>
+          {QUICK_PROMPTS.map((item) => (
+            <button
+              key={item.id}
+              className="quick"
+              onClick={() => {
+                dispatch({ type: "instruction", text: item.instruction });
+                void runDirector(item.instruction);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <section className="composer" aria-label="Director prompt">
+          {state.busy ? <p className="composer-status">{state.busy}</p> : null}
+          <div className="composer-shell">
+            <label className="composer-plus" title="上传参考图" aria-label="上传参考图">
+              +
               <input
                 type="file"
                 accept="image/*"
@@ -399,133 +500,32 @@ export function Workbench() {
                 }}
               />
             </label>
-            <button className="btn" onClick={() => analyzeReference()}>
-              使用示例 Visual DNA
-            </button>
-          </div>
-        </div>
-        <div className="dna">
-          {state.busy ? <span className="chip">{state.busy}</span> : null}
-          {dnaChips.map((chip) => (
-            <span className="chip" key={chip}>
-              {chip}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      <section className="director">
-        <div className="dir-main">
-          <div className="col-h" style={{ border: "none", padding: "0 0 8px" }}>
-            ✦ DIRECTOR
-          </div>
-          <div className="dir-row">
-            <select defaultValue="shot" aria-label="scope">
-              <option value="shot">Current Shot</option>
-              <option value="scene" disabled>
-                Current Scene
-              </option>
-              <option value="story" disabled>
-                Entire Story
-              </option>
-            </select>
-            {QUICK_PROMPTS.map((item) => (
-              <button
-                key={item.id}
-                className="quick"
-                onClick={() => {
-                  dispatch({ type: "instruction", text: item.instruction });
-                  void runDirector(item.instruction);
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <textarea
-            className="prompt"
-            value={state.instruction}
-            onChange={(e) => dispatch({ type: "instruction", text: e.target.value })}
-          />
-          <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+            <textarea
+              className="prompt"
+              placeholder="给导演一句话：跟拍、绕到正面、放慢人物…"
+              value={state.instruction}
+              rows={1}
+              onChange={(e) => dispatch({ type: "instruction", text: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void runDirector(state.instruction);
+                }
+              }}
+            />
             <button
-              className="btn primary"
+              className="composer-send"
+              aria-label="发送导演指令"
               disabled={!currentShot || state.busy !== null}
               onClick={() => runDirector(state.instruction)}
             >
-              APPLY ↗
+              ↑
             </button>
           </div>
-        </div>
-        <div className="changes">
-          <div className="col-h" style={{ border: "none", padding: "0 0 8px" }}>
-            CHANGES
-          </div>
-          {!state.pending ? (
-            <p style={{ color: "var(--muted)", fontSize: 12 }}>
-              先解析导演指令，确认后再写入镜头。
-            </p>
-          ) : (
-            <>
-              {state.pending.changes.map((change, index) => (
-                <div key={`${change.key}-${index}`} className="change">
-                  <div>
-                    <div>{change.label}</div>
-                    <small style={{ color: "var(--muted)" }}>
-                      {String(change.from)} → {String(change.to)}
-                    </small>
-                    {change.slider && typeof change.to === "number" ? (
-                      <input
-                        type="range"
-                        min={change.slider.min}
-                        max={change.slider.max}
-                        step={change.slider.step}
-                        value={Number(change.to)}
-                        onChange={(e) =>
-                          updatePending(change, Number(e.target.value))
-                        }
-                        style={{ width: "100%" }}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-              <div className="dir-row">
-                <button className="btn" onClick={() => dispatch({ type: "pending", pending: null })}>
-                  Cancel
-                </button>
-                <button className="btn primary" onClick={applyPending}>
-                  Apply
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
-
-      <footer className="timeline">
-        <span>TIMELINE · 接 everec（仅入口）</span>
-        {state.shots.map((shot) => (
-          <div
-            key={shot.shot_id}
-            className={shot.shot_id === state.currentShotId ? "clip on" : "clip"}
-            style={{ width: `${40 + shot.movement.duration * 10}px` }}
-          >
-            {shot.title}
-          </div>
-        ))}
-      </footer>
-
-      {showKb ? (
-        <aside className="kb">
-          <b>基本镜头语言</b>
-          {FAQ.map(([k, v]) => (
-            <p key={k}>
-              <b>{k}</b> {v}
-            </p>
-          ))}
-        </aside>
-      ) : null}
+        </section>
+      </div>
+      </div>
+      {introDone ? null : <IntroSplash onDone={finishIntro} />}
     </div>
   );
 }
