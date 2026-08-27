@@ -21,15 +21,25 @@ function HeritageHall({ space }: { space: SpaceModel }) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 6]} receiveShadow>
-        <planeGeometry args={[24, 32]} />
-        <meshStandardMaterial color="#1a1c22" />
+        <planeGeometry args={[28, 36]} />
+        <meshStandardMaterial color="#14161c" />
       </mesh>
-      {space.objects.map((obj) => (
-        <mesh key={obj.id} position={obj.position} castShadow>
-          <boxGeometry args={obj.size || [1, 1, 1]} />
-          <meshStandardMaterial color={TYPE_COLOR[obj.type] || "#666"} />
-        </mesh>
-      ))}
+      <mesh position={[-12.1, 3, 6]}>
+        <boxGeometry args={[0.28, 6, 32]} />
+        <meshStandardMaterial color="#2a241c" />
+      </mesh>
+      <mesh position={[12.1, 3, 6]}>
+        <boxGeometry args={[0.28, 6, 32]} />
+        <meshStandardMaterial color="#2a241c" />
+      </mesh>
+      {space.objects
+        .filter((obj) => obj.type !== "ground")
+        .map((obj) => (
+          <mesh key={obj.id} position={obj.position} castShadow>
+            <boxGeometry args={obj.size || [1, 1, 1]} />
+            <meshStandardMaterial color={TYPE_COLOR[obj.type] || "#666"} />
+          </mesh>
+        ))}
     </group>
   );
 }
@@ -115,10 +125,10 @@ export function SpaceViewer({
       <span className="viewer-label">3D SPACE · CAMERA PATH</span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
       <div className={dual ? "viewer-split" : undefined} style={{ height: "100%" }}>
-        <Canvas shadows>
+        <Canvas shadows camera={{ position: [14, 9, -12], fov: 42 }}>
           <color attach="background" args={["#07080a"]} />
-          <ambientLight intensity={0.45} />
-          <directionalLight position={[8, 12, 4]} intensity={1.1} castShadow />
+          <ambientLight intensity={0.55} />
+          <directionalLight position={[8, 14, 4]} intensity={1.15} castShadow />
           <HeritageHall space={space} />
           {shots.map((shot) => (
             <PathLine
@@ -145,7 +155,7 @@ export function SpaceViewer({
               <meshStandardMaterial color="#c45c4a" />
             </mesh>
           ) : null}
-          <OrbitControls makeDefault enableDamping />
+          <OrbitControls makeDefault enableDamping target={[0, 1.2, 6]} />
           <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />
         </Canvas>
         {dual && current ? (

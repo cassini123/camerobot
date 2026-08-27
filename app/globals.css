@@ -36,7 +36,7 @@ textarea {
 .workbench {
   height: 100vh;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) 132px 168px 44px;
+  grid-template-rows: 52px minmax(0, 1fr) 118px minmax(200px, 240px) 44px;
   gap: 0;
 }
 

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import storyData from "@/data/story_boktu.json";
 import spaceData from "@/data/space_heritage_hall.json";
 import { buildExportPayload } from "@/lib/export";
-import { EXAMPLE_VISUAL_DNA, QUICK_PROMPTS } from "@/lib/fallbacks";
+import { EXAMPLE_VISUAL_DNA, heuristicDirector, QUICK_PROMPTS } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
 import type {
@@ -146,37 +146,55 @@ export function Workbench() {
 
   async function generateShots() {
     dispatch({ type: "busy", busy: "生成镜头与路径…" });
-    const res = await fetch("/api/shots/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scene,
-        space: state.space,
-        visual_dna: state.dna || EXAMPLE_VISUAL_DNA,
-      }),
-    });
-    const json = await res.json();
-    dispatch({ type: "shots", shots: json.shots });
+    try {
+      const res = await fetch("/api/shots/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scene,
+          space: state.space,
+          visual_dna: state.dna || EXAMPLE_VISUAL_DNA,
+        }),
+      });
+      const json = await res.json();
+      if (!Array.isArray(json.shots) || json.shots.length === 0) {
+        throw new Error("empty shots");
+      }
+      dispatch({ type: "shots", shots: json.shots });
+    } catch {
+      dispatch({ type: "busy", busy: "生成失败，请重试" });
+      return;
+    }
     dispatch({ type: "busy", busy: null });
   }
 
   async function runDirector(instruction: string) {
     if (!currentShot) {
+      dispatch({ type: "busy", busy: "请先 Generate Shots 并选择镜头" });
       return;
     }
+    const local = heuristicDirector(instruction, currentShot);
+    dispatch({ type: "pending", pending: local });
     dispatch({ type: "busy", busy: "导演指令解析…" });
-    const res = await fetch("/api/director", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scope: currentShot.shot_id,
-        instruction,
-        current_state: currentShot,
-      }),
-    });
-    const json = (await res.json()) as DirectorResponse;
-    dispatch({ type: "pending", pending: json });
-    dispatch({ type: "busy", busy: null });
+    try {
+      const res = await fetch("/api/director", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: currentShot.shot_id,
+          instruction,
+          current_state: currentShot,
+        }),
+      });
+      const json = (await res.json()) as DirectorResponse;
+      if (Array.isArray(json.changes) && json.changes.length > 0) {
+        dispatch({ type: "pending", pending: json });
+      }
+    } catch {
+      dispatch({ type: "pending", pending: local });
+    } finally {
+      dispatch({ type: "busy", busy: null });
+    }
   }
 
   function updatePending(change: DirectorChange, value: number) {
@@ -446,8 +464,8 @@ export function Workbench() {
             </p>
           ) : (
             <>
-              {state.pending.changes.map((change) => (
-                <div key={change.key} className="change">
+              {state.pending.changes.map((change, index) => (
+                <div key={`${change.key}-${index}`} className="change">
                   <div>
                     <div>{change.label}</div>
                     <small style={{ color: "var(--muted)" }}>
