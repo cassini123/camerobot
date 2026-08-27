@@ -1,5 +1,6 @@
 "use client";
 
+import { DraggablePanel } from "./DraggablePanel";
 import type { ToolId } from "@/lib/tools";
 import { STUDIO_TOOLS } from "@/lib/tools";
 import type { Shot } from "@/lib/types";
@@ -48,7 +49,8 @@ export function ToolDock({
           return null;
         }
         return (
-          <section key={id} className="tool-card">
+          <DraggablePanel key={id}>
+          <section className="tool-card">
             <div className="tool-card-h">
               <span className="tool-icon" aria-hidden>
                 {tool.icon}
@@ -147,6 +149,7 @@ export function ToolDock({
               ) : null}
             </div>
           </section>
+          </DraggablePanel>
         );
       })}
     </aside>
