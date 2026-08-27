@@ -1,7 +1,39 @@
-# Camerobot
+# Camerobot + 云径 VirtuPath
 
 个人机器人摄影师 Pro：一个“类人型陪伴 + 专业摄影 + 无人机 + 轻摇臂 +
 移动储物”的机器人系统。
+
+## 云径 VirtuPath（A：框架 / 技术 Demo）
+
+云径是 everec 剧本与机器人执行端之间的桥梁：Story + Space + Reference → Shot + Path → Director Prompt → Export Shot Recipe JSON。不接真机、不做剪辑引擎。
+
+工作台：Next.js 单页（`/yunjing`），Three.js 代理空间与双视口预演。AI 走清程智极 `https://aiping.cn/api/v1`（Vision：参考图 Visual DNA；文本：分镜 / 导演 JSON Patch）。无 Key 时回落到预制案例，Pitch 不断档。群核 Aholo 重建为占位；空间案例为 InteriorGS 风格厅堂代理几何。
+
+```bash
+cp .env.example .env.local   # 填入 QINGCHENG_API_KEY（可选）
+npm install
+npm test
+npm run dev
+```
+
+打开 http://localhost:3000/yunjing
+
+Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_API_KEY`（可选）。密钥不要提交进仓库。
+
+### Demo 十步
+
+1. 进入 YUNJING，左侧已有剧本《博克图》。
+2. 选择 Scene 02 穿行。
+3. 中央 3D 厅堂出现（代理建筑 / 窗 / 人物）。
+4. 点击参考图或「使用示例 Visual DNA」，看到焦段、机位、构图标签。
+5. Generate Shots：Shot 01 Establishing / 02 Follow / 03 Reveal，三条路径叠在空间里。
+6. 点 Shot 02，再 Preview：全局看摄影机 + 右侧镜头 POV。
+7. Director 输入：让人物走慢一点，镜头从人物侧后方跟拍，最后绕到建筑正面。
+8. CHANGES 面板出现速度 / 机位 / 运镜 / 时长（可滑杆）。
+9. Apply：3D 路径更新。
+10. Export → `yun-jing-project.json`（含 path 与 `robot_hints`，对齐 Camerobot ShotPlan）。
+
+后续硬件仍用仓库内 Python `camerobot/` MVP0；本次导出只做数据桥。
 
 > 产品心智：摄影界的智能航空母舰。
 

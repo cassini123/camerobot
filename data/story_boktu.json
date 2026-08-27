@@ -1,0 +1,54 @@
+{
+  "story_id": "story_001",
+  "title": "博克图",
+  "scenes": [
+    {
+      "scene_id": "scene_01",
+      "title": "初见",
+      "description": "人物从车站走出，第一次看到旧铁路建筑。",
+      "characters": ["character_01"],
+      "objects": ["station", "railway_building"],
+      "action": "exit_and_look",
+      "emotion": "curiosity",
+      "pace": "slow",
+      "spatial_requirements": {
+        "start": "station_exit",
+        "destination": "railway_building",
+        "action": "walk",
+        "interaction": "look_at_building"
+      }
+    },
+    {
+      "scene_id": "scene_02",
+      "title": "穿行",
+      "description": "人物沿厅堂中轴走向历史建筑立面，光线从高窗落下，步伐缓慢。",
+      "characters": ["character_01"],
+      "objects": ["hall_axis", "railway_building", "high_windows"],
+      "action": "walk_through",
+      "emotion": "nostalgic",
+      "pace": "slow",
+      "spatial_requirements": {
+        "start": "station_exit",
+        "destination": "railway_building",
+        "action": "walk",
+        "interaction": "look_at_building"
+      }
+    },
+    {
+      "scene_id": "scene_03",
+      "title": "停留",
+      "description": "人物在建筑前停下，仰望窗洞与墙面细节。",
+      "characters": ["character_01"],
+      "objects": ["railway_building", "window_01"],
+      "action": "pause_and_look_up",
+      "emotion": "quiet",
+      "pace": "still",
+      "spatial_requirements": {
+        "start": "person_zone",
+        "destination": "window_01",
+        "action": "stand",
+        "interaction": "look_at_window"
+      }
+    }
+  ]
+}
