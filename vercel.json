@@ -1,10 +1,5 @@
 {
-  "cleanUrls": true,
-  "trailingSlash": false,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ]
+  "framework": "nextjs",
+  "installCommand": "npm install --prefix yunjing",
+  "buildCommand": "npm run build --prefix yunjing"
 }

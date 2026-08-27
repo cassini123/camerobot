@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix yunjing",
+    "build": "npm run build --prefix yunjing",
+    "start": "npm run start --prefix yunjing",
+    "test": "npm test --prefix yunjing",
+    "lint": "npm run lint --prefix yunjing"
+  }
+}

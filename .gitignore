@@ -8,3 +8,9 @@ venv/
 dist/
 build/
 *.egg-info/
+node_modules/
+.next/
+.env
+.env.local
+yunjing/.next/
+yunjing/node_modules/
