@@ -10,8 +10,7 @@
 工作台：Next.js 单页（`/yunjing`），Three.js 代理空间与双视口预演。AI 走清程智极 `https://aiping.cn/api/v1`（Vision：参考图 Visual DNA；文本：分镜 / 导演 JSON Patch）。无 Key 时回落到预制案例，Pitch 不断档。群核 Aholo 重建为占位；空间案例为 InteriorGS 风格厅堂代理几何。
 
 ```bash
-cd yunjing
-cp .env.example .env.local   # 填入 QINGCHENG_API_KEY
+cp .env.example .env.local   # 填入 QINGCHENG_API_KEY（可选）
 npm install
 npm test
 npm run dev
@@ -19,7 +18,7 @@ npm run dev
 
 打开 http://localhost:3000/yunjing
 
-Vercel 请将 Root Directory 设为 `yunjing`，并配置 `QINGCHENG_API_KEY`。密钥不要提交进仓库。
+Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_API_KEY`（可选）。密钥不要提交进仓库。
 
 ### Demo 十步
 
