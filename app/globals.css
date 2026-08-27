@@ -246,7 +246,7 @@ textarea {
 .composer-dock {
   position: absolute;
   left: calc(220px + (100% - 460px) / 2);
-  bottom: 18px;
+  bottom: 24px;
   z-index: 8;
   display: flex;
   flex-direction: column;

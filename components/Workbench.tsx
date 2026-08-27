@@ -434,6 +434,21 @@ export function Workbench() {
           </div>
         ) : null}
 
+        {state.shots.length > 0 ? (
+          <footer className="timeline">
+            <span>TIMELINE</span>
+            {state.shots.map((shot) => (
+              <div
+                key={shot.shot_id}
+                className={shot.shot_id === state.currentShotId ? "clip on" : "clip"}
+                style={{ width: `${40 + shot.movement.duration * 10}px` }}
+              >
+                {shot.title}
+              </div>
+            ))}
+          </footer>
+        ) : null}
+
         <div className="composer-tools">
           <select defaultValue="shot" aria-label="scope">
             <option value="shot">Current Shot</option>
@@ -500,19 +515,6 @@ export function Workbench() {
             </button>
           </div>
         </section>
-
-        <footer className="timeline">
-          <span>TIMELINE</span>
-          {state.shots.map((shot) => (
-            <div
-              key={shot.shot_id}
-              className={shot.shot_id === state.currentShotId ? "clip on" : "clip"}
-              style={{ width: `${40 + shot.movement.duration * 10}px` }}
-            >
-              {shot.title}
-            </div>
-          ))}
-        </footer>
       </div>
 
       {showKb ? (
