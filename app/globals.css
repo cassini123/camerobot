@@ -263,7 +263,7 @@ textarea {
 
 .composer {
   width: 100%;
-  padding: 10px 12px 12px;
+  padding: 10px 12px;
   border-radius: 28px;
   background: var(--composer);
   color: var(--composer-text);
@@ -275,17 +275,18 @@ textarea {
 .composer-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  max-width: 100%;
 }
 
 .composer-tools select {
   height: 28px;
-  border: 1px solid #e6e6e6;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: #f6f6f6;
-  color: var(--composer-text);
+  background: rgba(12, 13, 16, 0.78);
+  color: var(--text);
   padding: 0 10px;
   font-size: 12px;
 }
@@ -294,15 +295,16 @@ textarea {
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 99px;
-  border: 1px solid #ececec;
-  background: #f7f7f7;
-  color: #333;
+  border: 1px solid var(--line);
+  background: rgba(12, 13, 16, 0.78);
+  color: var(--text);
   cursor: pointer;
+  backdrop-filter: blur(12px);
 }
 
 .quick:hover {
-  border-color: #d4a574;
-  background: #fff8ef;
+  border-color: var(--gold);
+  background: rgba(212, 165, 116, 0.16);
 }
 
 .composer-shell {
@@ -354,14 +356,14 @@ textarea {
 .prompt {
   flex: 1;
   width: 100%;
-  min-height: 40px;
+  min-height: 36px;
   max-height: 132px;
   resize: none;
   background: transparent;
   color: var(--composer-text);
   border: 0;
   outline: none;
-  padding: 10px 4px;
+  padding: 8px 4px;
   line-height: 1.45;
 }
 
@@ -370,7 +372,7 @@ textarea {
 }
 
 .composer-status {
-  margin: 0 0 6px 44px;
+  margin: 0 0 4px 44px;
   color: var(--composer-muted);
   font-size: 12px;
 }

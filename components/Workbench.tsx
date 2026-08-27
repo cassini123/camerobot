@@ -434,30 +434,31 @@ export function Workbench() {
           </div>
         ) : null}
 
+        <div className="composer-tools">
+          <select defaultValue="shot" aria-label="scope">
+            <option value="shot">Current Shot</option>
+            <option value="scene" disabled>
+              Current Scene
+            </option>
+            <option value="story" disabled>
+              Entire Story
+            </option>
+          </select>
+          {QUICK_PROMPTS.map((item) => (
+            <button
+              key={item.id}
+              className="quick"
+              onClick={() => {
+                dispatch({ type: "instruction", text: item.instruction });
+                void runDirector(item.instruction);
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
         <section className="composer" aria-label="Director prompt">
-          <div className="composer-tools">
-            <select defaultValue="shot" aria-label="scope">
-              <option value="shot">Current Shot</option>
-              <option value="scene" disabled>
-                Current Scene
-              </option>
-              <option value="story" disabled>
-                Entire Story
-              </option>
-            </select>
-            {QUICK_PROMPTS.map((item) => (
-              <button
-                key={item.id}
-                className="quick"
-                onClick={() => {
-                  dispatch({ type: "instruction", text: item.instruction });
-                  void runDirector(item.instruction);
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
           {state.busy ? <p className="composer-status">{state.busy}</p> : null}
           <div className="composer-shell">
             <label className="composer-plus" title="上传参考图" aria-label="上传参考图">
@@ -480,7 +481,7 @@ export function Workbench() {
               className="prompt"
               placeholder="给导演一句话：跟拍、绕到正面、放慢人物…"
               value={state.instruction}
-              rows={2}
+              rows={1}
               onChange={(e) => dispatch({ type: "instruction", text: e.target.value })}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
