@@ -303,7 +303,7 @@ export function Workbench() {
 
       <div className="workspace">
       <div className="stage">
-        <aside className="col">
+        <aside className="col story-col">
           <div className="col-h">STORY</div>
           {story.scenes.map((item: Scene) => (
             <div
@@ -315,6 +315,30 @@ export function Workbench() {
               <small>{item.description}</small>
             </div>
           ))}
+          <div className="lens-dock">
+            {showKb ? (
+              <aside className="kb">
+                <b>镜头语言</b>
+                {FAQ.map(([k, v]) => (
+                  <p key={k}>
+                    <b>{k}</b> {v}
+                  </p>
+                ))}
+              </aside>
+            ) : null}
+            <button
+              className={showKb ? "lens-btn on" : "lens-btn"}
+              aria-label="镜头语言"
+              title="镜头语言"
+              onClick={() => setShowKb((v) => !v)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="8.2" />
+                <circle cx="12" cy="12" r="3.2" />
+                <path d="M12 3.8v2.4M12 17.8v2.4M3.8 12h2.4M17.8 12h2.4M6.2 6.2l1.7 1.7M16.1 16.1l1.7 1.7M17.8 6.2l-1.7 1.7M7.9 16.1l-1.7 1.7" />
+              </svg>
+            </button>
+          </div>
         </aside>
 
         <SpaceViewer
@@ -500,31 +524,6 @@ export function Workbench() {
           </div>
         </section>
       </div>
-      </div>
-
-      <div className="lens-dock">
-        {showKb ? (
-          <aside className="kb">
-            <b>镜头语言</b>
-            {FAQ.map(([k, v]) => (
-              <p key={k}>
-                <b>{k}</b> {v}
-              </p>
-            ))}
-          </aside>
-        ) : null}
-        <button
-          className={showKb ? "lens-btn on" : "lens-btn"}
-          aria-label="镜头语言"
-          title="镜头语言"
-          onClick={() => setShowKb((v) => !v)}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="8.2" />
-            <circle cx="12" cy="12" r="3.2" />
-            <path d="M12 3.8v2.4M12 17.8v2.4M3.8 12h2.4M17.8 12h2.4M6.2 6.2l1.7 1.7M16.1 16.1l1.7 1.7M17.8 6.2l-1.7 1.7M7.9 16.1l-1.7 1.7" />
-          </svg>
-        </button>
       </div>
       {introDone ? null : <IntroSplash onDone={finishIntro} />}
     </div>
