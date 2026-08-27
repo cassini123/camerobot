@@ -282,12 +282,10 @@ export function heuristicDirector(
     });
   }
 
-  if (/建筑/.test(text) && /强化|正面|主体/.test(text)) {
+  if (/强化建筑/.test(text) || (/建筑/.test(text) && /强化|主体/.test(text) && !/跟拍|侧后/.test(text))) {
     patch.target = { type: "building", object_id: "building_01" };
     setChange("target", "Target", shot.target.type, "building");
-  }
-
-  if (/人物/.test(text) && /强化|靠近|跟/.test(text)) {
+  } else if (/强化人物/.test(text) || (/人物/.test(text) && /强化|靠近|跟/.test(text))) {
     patch.target = { type: "person", object_id: "person_01" };
     setChange("target", "Target", shot.target.type, "person");
   }
