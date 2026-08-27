@@ -175,6 +175,23 @@ textarea {
   height: 100%;
 }
 
+.viewer.is-full,
+.viewer:fullscreen,
+.viewer:-webkit-full-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  width: 100vw;
+  height: 100dvh;
+  background: #07080a;
+}
+
+.viewer.is-full .viewer-label,
+.viewer:fullscreen .viewer-label,
+.viewer:-webkit-full-screen .viewer-label {
+  top: 16px;
+}
+
 .viewer canvas {
   display: block;
 }

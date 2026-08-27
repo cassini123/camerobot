@@ -2,7 +2,7 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Line, OrbitControls } from "@react-three/drei";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CameraPath, Shot, SpaceModel, Vec3 } from "@/lib/types";
 import { pathPoints, samplePath } from "@/lib/path-engine";
 
@@ -119,10 +119,80 @@ export function SpaceViewer({
       ? samplePath(current.path, previewT)
       : current.path.start
     : ([0, 2, 8] as Vec3);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pointer = useRef({ x: 0, y: 0, dragging: false });
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    const sync = () => {
+      setFull(document.fullscreenElement === rootRef.current);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (document.fullscreenElement) {
+        void document.exitFullscreen();
+      }
+      setFull(false);
+    };
+    document.addEventListener("fullscreenchange", sync);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  function enterFullscreen() {
+    const node = rootRef.current;
+    if (!node || document.fullscreenElement) {
+      return;
+    }
+    const req =
+      node.requestFullscreen?.bind(node) ||
+      (
+        node as HTMLDivElement & {
+          webkitRequestFullscreen?: () => Promise<void>;
+        }
+      ).webkitRequestFullscreen?.bind(node);
+    if (req) {
+      void Promise.resolve(req()).catch(() => setFull(true));
+    } else {
+      setFull(true);
+    }
+  }
 
   return (
-    <div className="viewer">
-      <span className="viewer-label">3D SPACE · CAMERA PATH</span>
+    <div
+      ref={rootRef}
+      className={full ? "viewer is-full" : "viewer"}
+      onPointerDown={(event) => {
+        if (event.button !== 0) {
+          return;
+        }
+        pointer.current = { x: event.clientX, y: event.clientY, dragging: false };
+      }}
+      onPointerMove={(event) => {
+        if (
+          Math.hypot(
+            event.clientX - pointer.current.x,
+            event.clientY - pointer.current.y,
+          ) > 8
+        ) {
+          pointer.current.dragging = true;
+        }
+      }}
+      onPointerUp={(event) => {
+        if (event.button !== 0 || pointer.current.dragging || full) {
+          return;
+        }
+        enterFullscreen();
+      }}
+    >
+      <span className="viewer-label">
+        {full ? "ESC 退出全屏" : "3D SPACE · CAMERA PATH"}
+      </span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
       <div className={dual ? "viewer-split" : undefined} style={{ height: "100%" }}>
         <Canvas shadows camera={{ position: [14, 9, -12], fov: 42 }}>
