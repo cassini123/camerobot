@@ -623,8 +623,8 @@ textarea {
 .model-dock {
   position: absolute;
   left: 232px;
-  bottom: 24px;
-  z-index: 12;
+  bottom: 132px;
+  z-index: 30;
   width: 210px;
   display: grid;
   gap: 4px;
@@ -1356,11 +1356,11 @@ input[type="range"]::-moz-range-thumb {
 
 .globe-disk {
   position: absolute;
-  width: 150%;
-  height: 150%;
-  left: -90%;
-  top: -62%;
-  border-radius: 28px;
+  width: 88%;
+  height: 88%;
+  left: -52%;
+  top: 18%;
+  border-radius: 16px;
   overflow: hidden;
   pointer-events: auto;
   cursor: pointer;
@@ -1384,7 +1384,7 @@ input[type="range"]::-moz-range-thumb {
   mix-blend-mode: multiply;
   filter: sepia(0.15) saturate(1.4) hue-rotate(95deg) contrast(1.15);
   opacity: 0.88;
-  border-radius: 18px;
+  border-radius: 10px;
 }
 
 .globe-flow {
@@ -1404,7 +1404,7 @@ input[type="range"]::-moz-range-thumb {
 .globe-ring {
   position: absolute;
   inset: 6%;
-  border-radius: 22px;
+  border-radius: 12px;
   border: 1px solid rgba(212, 165, 116, 0.45);
   box-shadow: 0 0 18px rgba(212, 165, 116, 0.25);
   animation: globe-ring 5.5s ease-in-out infinite;
@@ -1413,7 +1413,7 @@ input[type="range"]::-moz-range-thumb {
 .globe-sketch {
   position: absolute;
   inset: 0;
-  border-radius: 28px;
+  border-radius: 16px;
   box-shadow: inset 0 0 0 1px rgba(20, 18, 14, 0.35);
   background:
     repeating-linear-gradient(
@@ -1803,11 +1803,11 @@ input[type="range"]::-moz-range-thumb {
     height: 220px;
   }
   .globe-disk {
-    left: -48%;
-    top: -28%;
-    width: 140%;
-    height: 140%;
-    border-radius: 24px;
+    left: -36%;
+    top: 12%;
+    width: 90%;
+    height: 90%;
+    border-radius: 14px;
   }
   .globe-brand {
     left: 16px;

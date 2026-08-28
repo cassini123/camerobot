@@ -1084,6 +1084,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         </button>
         {modelOpen ? (
           <div className="model-menu" role="menu">
+            <button type="button" onClick={() => modelInputRef.current?.click()}>
+              + 上传模型
+              <small>{SCENE_MODEL_FORMATS}</small>
+            </button>
             <button
               type="button"
               className={state.space.kind === "upload" ? "" : "on"}
@@ -1091,10 +1095,6 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             >
               Example
               <small>当前预览厅堂</small>
-            </button>
-            <button type="button" onClick={() => modelInputRef.current?.click()}>
-              + 上传模型
-              <small>{SCENE_MODEL_FORMATS}</small>
             </button>
           </div>
         ) : null}
