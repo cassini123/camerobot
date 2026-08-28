@@ -193,8 +193,82 @@ export function applyPresetToShot(preset: CatalogPreset, shot: Shot): Shot {
   if (preset.id === "white_soft") {
     return { ...shot, look: "white_soft" };
   }
+  if (preset.id === "slowmo") {
+    const speed = 0.45;
+    const duration =
+      Math.round((shot.movement.duration / (shot.movement.speed || 1)) * (1 / speed) * 10) / 10;
+    return {
+      ...shot,
+      movement: { ...shot.movement, speed, duration },
+    };
+  }
+  if (preset.id === "dutch") {
+    return { ...shot, camera: { ...shot.camera, angle: "dutch" } };
+  }
+  if (preset.id === "crash") {
+    return {
+      ...shot,
+      movement: { ...shot.movement, type: "DOLLY_IN", duration: 1.2, speed: 1.45 },
+    };
+  }
+  if (preset.id === "handheld") {
+    return { ...shot, handheld: true };
+  }
+  if (preset.id === "warm") {
+    return { ...shot, color: { temperature: "warm", contrast: shot.color?.contrast ?? "medium" } };
+  }
+  if (preset.id === "cool") {
+    return { ...shot, color: { temperature: "cool", contrast: shot.color?.contrast ?? "medium" } };
+  }
+  if (preset.id === "contrast") {
+    return {
+      ...shot,
+      color: { temperature: shot.color?.temperature ?? "warm", contrast: "high" },
+    };
+  }
+  if (preset.id === "teal") {
+    return { ...shot, color: { temperature: "teal_orange", contrast: "high" } };
+  }
   const local = heuristicDirector(preset.instruction, shot);
   return deepMerge(shot, local.patch) as Shot;
+}
+
+export function presetMatchesShot(preset: CatalogPreset, shot: Shot | undefined): boolean {
+  if (!shot) {
+    return false;
+  }
+  switch (preset.id) {
+    case "ots":
+      return shot.kind === "follow" && shot.camera.angle === "rear_3_4";
+    case "establishing":
+      return shot.kind === "establishing";
+    case "character":
+      return shot.kind === "character";
+    case "fisheye":
+      return shot.lensStyle === "fisheye";
+    case "black_soft":
+      return shot.look === "black_soft";
+    case "white_soft":
+      return shot.look === "white_soft";
+    case "slowmo":
+      return (shot.movement.speed ?? 1) < 0.75;
+    case "dutch":
+      return shot.camera.angle === "dutch";
+    case "crash":
+      return shot.movement.type === "DOLLY_IN" && shot.movement.duration <= 1.6;
+    case "handheld":
+      return Boolean(shot.handheld);
+    case "warm":
+      return shot.color?.temperature === "warm";
+    case "cool":
+      return shot.color?.temperature === "cool";
+    case "contrast":
+      return shot.color?.contrast === "high";
+    case "teal":
+      return shot.color?.temperature === "teal_orange";
+    default:
+      return false;
+  }
 }
 
 export function searchShotBoard(

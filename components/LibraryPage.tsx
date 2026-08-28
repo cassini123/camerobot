@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { EXPLORE_FEED } from "@/lib/library-explore";
 import type { AssetKind, AssetSource } from "@/lib/library-types";
 import { AssetThumb } from "./AssetThumb";
+import { ExploreMasonry } from "./ExploreMasonry";
 import { useLibrary } from "./LibraryProvider";
 
 const KINDS: { id: "all" | AssetKind; label: string }[] = [
@@ -62,31 +62,7 @@ export function LibraryPage() {
       </div>
 
       {section === "explore" ? (
-        <div className="explore-feed">
-          {EXPLORE_FEED.length === 0 ? (
-            <p className="lib-empty">
-              Explore 信息流稍后接入视频。现在可以切到 My Library 看上传与生成。
-            </p>
-          ) : (
-            EXPLORE_FEED.map((item) => (
-              <article
-                key={item.id}
-                className={picked === item.id ? "explore-card gemini-glow" : "explore-card"}
-                onClick={() => setPicked(item.id)}
-              >
-                {item.kind === "video" && item.src ? (
-                  <video src={item.src} poster={item.poster} muted loop playsInline />
-                ) : item.src ? (
-                  <img src={item.src} alt="" />
-                ) : (
-                  <div className="lib-ph">{item.kicker ?? item.kind}</div>
-                )}
-                <b>{item.title}</b>
-                {item.kicker ? <small>{item.kicker}</small> : null}
-              </article>
-            ))
-          )}
-        </div>
+        <ExploreMasonry />
       ) : (
         <>
           <div className="lib-toolbar lib-toolbar-sub">

@@ -8,6 +8,7 @@ import {
   SHOT_PRESETS,
   SHOT_PRIMARY,
   movementOf,
+  presetMatchesShot,
   searchShotBoard,
   type ShotPrimary,
   type CatalogPreset,
@@ -26,6 +27,7 @@ export function ShotBoard({
 }) {
   const [query, setQuery] = useState("");
   const [primary, setPrimary] = useState<ShotPrimary>("movement");
+  const current = shots.find((shot) => shot.shot_id === currentShotId);
   const filtered = useMemo(
     () => searchShotBoard(query, shots, SHOT_PRESETS),
     [query, shots],
@@ -58,7 +60,7 @@ export function ShotBoard({
               const items = filtered.shots.filter(
                 (shot) => normalizeMovement(movementOf(shot)) === group.type,
               );
-              if (query && items.length === 0) {
+              if (items.length === 0) {
                 return null;
               }
               return (
@@ -67,10 +69,7 @@ export function ShotBoard({
                     <b>{group.label}</b>
                     <small>{group.hint}</small>
                   </div>
-                  {items.length === 0 ? (
-                    <div className="shot muted">暂无此运动的镜头</div>
-                  ) : (
-                    items.map((shot) => (
+                  {items.map((shot) => (
                       <div
                         key={shot.shot_id}
                         className={
@@ -86,8 +85,7 @@ export function ShotBoard({
                           MATCH {Math.round(shot.match.overall * 100)}%
                         </div>
                       </div>
-                    ))
-                  )}
+                    ))}
                 </div>
               );
             })
@@ -97,7 +95,9 @@ export function ShotBoard({
                 <button
                   key={item.id}
                   type="button"
-                  className="shot preset"
+                  className={
+                    presetMatchesShot(item, current) ? "shot preset on gemini-glow" : "shot preset"
+                  }
                   onClick={() => onPreset(item)}
                 >
                   {item.label}

@@ -2,13 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  FEED,
-  FRIENDS,
-  PLACES,
-  sharedBy,
-  type FriendId,
-} from "@/lib/game-world";
+import { FRIENDS, PLACES, type FriendId } from "@/lib/game-world";
+import { EXPLORE_FEED } from "@/lib/library-explore";
+import { ExploreMasonry } from "./ExploreMasonry";
 
 export function GameWorld() {
   const [selected, setSelected] = useState<FriendId | "all">("all");
@@ -34,7 +30,8 @@ export function GameWorld() {
     });
   }
 
-  const feed = selected === "all" ? FEED : FEED.filter((item) => item.who === selected);
+  const clips =
+    selected === "all" ? EXPLORE_FEED : EXPLORE_FEED.filter((item) => item.who === selected);
 
   return (
     <div className="game-world">
@@ -95,32 +92,15 @@ export function GameWorld() {
       </div>
 
       <section className="game-feed" aria-label="信息流">
-        <h2>信息流</h2>
+        <h2>Explore</h2>
         {visiblePlaces.length ? (
           <p className="feed-sub">
             {selected === "all"
-              ? "全图动态"
+              ? "不规则信息流 · 悬停播放"
               : `${FRIENDS.find((f) => f.id === selected)?.name} 去过 ${visiblePlaces.length} 处`}
           </p>
         ) : null}
-        <ol>
-          {feed.map((item) => {
-            const place = PLACES.find((p) => p.id === item.placeId);
-            const who = FRIENDS.find((f) => f.id === item.who);
-            return (
-              <li key={item.id}>
-                <button type="button" onClick={() => walkTo(item.placeId)}>
-                  <b>{item.text}</b>
-                  <small>
-                    {item.time}
-                    {place && sharedBy(place.id).length > 1 ? " · 共享地点" : ""}
-                    {who ? ` · ${who.name}` : ""}
-                  </small>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
+        <ExploreMasonry items={clips} />
       </section>
     </div>
   );
