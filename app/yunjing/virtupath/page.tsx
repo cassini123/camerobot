@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function VirtuPathRedirect() {
+export default function LegacyCinPathRedirect() {
   redirect("/yunjing/cinpath");
 }

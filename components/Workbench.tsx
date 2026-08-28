@@ -19,6 +19,7 @@ import {
   FULL_EXAMPLE_PLY_BYTES,
   FULL_EXAMPLE_PLY_URL,
   exampleSpace,
+  placeholderSpace,
   resolveSpaceObject,
   SCENE_MODEL_ACCEPT,
   SCENE_MODEL_FORMATS,
@@ -603,26 +604,48 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       return;
     }
     dispatch({ type: "busy", busy: `载入 ${item.name}…` });
-    setToast({ kind: "ok", text: `正在拉取 ${item.name} 的 3DGS…` });
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`无法下载场景（${res.status}）`);
-      }
-      const blob = await res.blob();
-      const extMatch = url.toLowerCase().match(/\.(ply|spz|splat|ksplat|glb|gltf)(?:$|\?)/);
-      const ext = extMatch?.[1] ?? "spz";
-      const file = new File([blob], `${item.name}.${ext}`, { type: "application/octet-stream" });
-      setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
-      await ingestModel(file, item.id, item.source);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "场景载入失败";
-      setLibrary((cur) =>
-        cur.map((it) => (it.id === item.id ? { ...it, ready: false, error: message } : it)),
-      );
-      dispatch({ type: "busy", busy: null });
-      setToast({ kind: "err", text: message });
-    }
+    setToast({ kind: "ok", text: `正在流式载入 ${item.name} 的 3DGS…` });
+    const extMatch = url.toLowerCase().match(/\.(ply|spz|splat|ksplat)(?:$|\?)/);
+    const ext = extMatch?.[1] ?? "spz";
+    const fileName = `${item.name}.${ext}`;
+    const nextSplat: SceneSplat = {
+      url,
+      fileName,
+      paged: true,
+      zUp: ext === "spz" || ext === "ply",
+      autoFit: true,
+      fit: IDENTITY_FIT,
+    };
+    const nextSpace = placeholderSpace(fileName, ext, `${item.name} · 3DGS ${ext.toUpperCase()}`);
+    setLibrary((cur) =>
+      cur.map((it) =>
+        it.id === item.id
+          ? {
+              ...it,
+              ready: true,
+              splat: nextSplat,
+              space: nextSpace,
+            }
+          : it,
+      ),
+    );
+    setCloud(null);
+    setSplat(nextSplat);
+    dispatch({ type: "space", space: nextSpace });
+    dispatch({ type: "model", name: item.name, space: nextSpace });
+    const remapped = (state.shots.length
+      ? state.shots
+      : fallbackShots(scene.scene_id, nextSpace)
+    ).map((shot) => applyPathToShot(shot, nextSpace));
+    dispatch({ type: "shots", shots: remapped });
+    setSelectedId(nextSpace.objects.find((obj) => obj.type !== "ground")?.id ?? null);
+    setActiveModelId(item.id);
+    setModelOpen(false);
+    setPreviewing(true);
+    setPreviewT(0);
+    setFilmPlaying(false);
+    dispatch({ type: "busy", busy: null });
+    setToast({ kind: "ok", text: `已 Apply ${item.name}` });
   }
 
   function applyLibrary(item: LibraryItem) {
@@ -669,7 +692,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     setSelectedId(nextSpace.objects.find((obj) => obj.type !== "ground")?.id ?? null);
     setActiveModelId(item.id);
     setModelOpen(false);
-    setPreviewing(false);
+    setDual(true);
+    setPreviewing(true);
+    setPreviewT(0);
     setFilmPlaying(false);
     setToast({ kind: "ok", text: `已 Apply ${item.name}` });
   }
@@ -804,6 +829,8 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     }
     const merged = deepMerge(currentShot, state.pending.patch) as Shot;
     dispatch({ type: "apply", shot: applyPathToShot(merged, state.space) });
+    setPreviewing(true);
+    setPreviewT(0);
   }
 
   function exportJson() {

@@ -88,8 +88,11 @@ export function buildPath(shot: Shot, space: SpaceModel): CameraPath {
       break;
     }
     case "DOLLY_IN": {
-      start = add(target, [0, height - target[1], 10]);
-      end = add(target, [0, height - target[1], 5]);
+      const closeness = Math.min(0.92, Math.max(0.12, shot.composition.subject_ratio || 0.38));
+      const far = 11.5 - closeness * 5.5;
+      const near = Math.max(1.6, far * (0.72 - closeness * 0.35));
+      start = add(target, [0, height - target[1], far]);
+      end = add(target, [0, height - target[1], near]);
       waypoints = [lerpSafe(start, end, 0.5)];
       break;
     }

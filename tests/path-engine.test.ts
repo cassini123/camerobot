@@ -72,4 +72,14 @@ describe("director heuristic", () => {
     expect(result.changes.some((item) => item.key === "movement.speed")).toBe(true);
     expect(JSON.stringify(result.patch)).toMatch(/FOLLOW|TRACKING/);
   });
+
+  it("pops closeness sliders for 靠近一点", () => {
+    const shot = fallbackShots("scene_02", hall)[0];
+    const result = heuristicDirector("靠近一点", shot);
+    expect(result.patch.movement).toMatchObject({ type: "DOLLY_IN" });
+    const closeness = result.changes.find((item) => item.key === "composition.subject_ratio");
+    const height = result.changes.find((item) => item.key === "camera.height");
+    expect(closeness?.slider).toBeTruthy();
+    expect(height?.slider).toBeTruthy();
+  });
 });

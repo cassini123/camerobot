@@ -346,11 +346,32 @@ export function heuristicDirector(
   }
 
   if (/靠近|更近/.test(text)) {
+    const nextRatio = Math.min(0.86, Math.round(((shot.composition.subject_ratio || 0.38) + 0.18) * 100) / 100);
+    const nextHeight = Math.max(0.85, Math.round((shot.camera.height - 0.12) * 100) / 100);
     patch.movement = {
       ...(typeof patch.movement === "object" ? patch.movement : {}),
       type: "DOLLY_IN",
     };
+    patch.composition = {
+      ...(typeof patch.composition === "object" ? patch.composition : {}),
+      subject_ratio: nextRatio,
+    };
+    patch.camera = {
+      ...(typeof patch.camera === "object" ? patch.camera : {}),
+      height: nextHeight,
+    };
     setChange("movement.type", "Movement", shot.movement.type, "DOLLY_IN");
+    setChange("composition.subject_ratio", "Closeness", shot.composition.subject_ratio, nextRatio, {
+      min: 0.15,
+      max: 0.9,
+      step: 0.01,
+    });
+    setChange("camera.height", "Camera Height", shot.camera.height, nextHeight, {
+      min: 0.5,
+      max: 2.8,
+      step: 0.05,
+      unit: "m",
+    });
   }
 
   if (/电影/.test(text)) {

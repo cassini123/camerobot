@@ -78,7 +78,7 @@ export function LibraryPage() {
               className={mineSource === "generated" ? "btn gemini-glow" : "btn"}
               onClick={() => setMineSource("generated")}
             >
-              生成
+              我的场景
             </button>
             {KINDS.map((item) => (
               <button

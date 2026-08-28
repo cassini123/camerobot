@@ -14,6 +14,7 @@ import {
 import { formatBytes, isGaussianPly, readPlyHeader, samplePlyFile } from "./ply-stream";
 import { SPARK_MAX_BYTES, type SceneVisual } from "./scene-visual";
 import type { SpaceModel } from "./types";
+import { placeholderSpace } from "./space-objects";
 
 function extOf(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -66,31 +67,6 @@ function spaceFromGeometry(
         ],
       },
     ],
-  };
-}
-
-function placeholderSpace(fileName: string, format: string, note: string): SpaceModel {
-  return {
-    space_id: "space_upload",
-    model: fileName,
-    kind: "upload",
-    format,
-    fileName,
-    description: note,
-    bounds: { min: [-8, 0, -8], max: [8, 8, 8] },
-    objects: [
-      {
-        id: "scene_01",
-        type: "object",
-        position: [0, 2, 0],
-        size: [16, 4, 16],
-        color: "#6b5c7a",
-        colorName: "紫",
-        label: "场景",
-        aliases: ["场景", "scene"],
-      },
-    ],
-    zones: [],
   };
 }
 

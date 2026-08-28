@@ -13,6 +13,31 @@ export const FULL_EXAMPLE_PLY_URL = "/api/example-model";
 export const FULL_EXAMPLE_PLY_BYTES = 3_528_201_479;
 export const FULL_EXAMPLE_GAUSSIANS = 14_950_000;
 
+export function placeholderSpace(fileName: string, format: string, note: string): SpaceModel {
+  return {
+    space_id: "space_upload",
+    model: fileName,
+    kind: "upload",
+    format,
+    fileName,
+    description: note,
+    bounds: { min: [-8, 0, -8], max: [8, 8, 8] },
+    objects: [
+      {
+        id: "scene_01",
+        type: "object",
+        position: [0, 2, 0],
+        size: [16, 4, 16],
+        color: "#6b5c7a",
+        colorName: "紫",
+        label: "场景",
+        aliases: ["场景", "scene"],
+      },
+    ],
+    zones: [],
+  };
+}
+
 export function exampleSpace(base: SpaceModel): SpaceModel {
   return {
     ...base,
