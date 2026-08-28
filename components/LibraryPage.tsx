@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { EXPLORE_FEED } from "@/lib/library-explore";
 import type { AssetKind, AssetSource } from "@/lib/library-types";
+import { AssetThumb } from "./AssetThumb";
 import { useLibrary } from "./LibraryProvider";
 
 const KINDS: { id: "all" | AssetKind; label: string }[] = [
@@ -119,7 +120,7 @@ export function LibraryPage() {
                 <input
                   type="file"
                   hidden
-                  accept="image/*,video/*,.ply,.spz,.splat,.glb,.gltf"
+                  accept="image/*,video/*,.ply,.plz,.spz,.sog,.splat,.glb,.gltf"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     e.target.value = "";
@@ -153,12 +154,10 @@ export function LibraryPage() {
                   className={picked === item.id ? "lib-card gemini-glow" : "lib-card"}
                   onClick={() => setPicked(item.id)}
                 >
-                  {item.kind === "image" && item.previewUrl ? (
-                    <img src={item.previewUrl} alt="" />
-                  ) : item.kind === "video" && item.previewUrl ? (
+                  {item.kind === "video" && item.previewUrl ? (
                     <video src={item.previewUrl} muted />
                   ) : (
-                    <div className="lib-ph">{item.kind}</div>
+                    <AssetThumb asset={item} />
                   )}
                   <b>{item.name}</b>
                   <small>

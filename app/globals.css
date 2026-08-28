@@ -1826,6 +1826,159 @@ input[type="range"]::-moz-range-thumb {
   justify-content: space-between;
   gap: 8px;
   margin-top: 12px;
+  align-items: center;
+}
+
+.gen-modal-tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+}
+
+.gen-modal-tools .panel-x {
+  position: static;
+}
+
+.gen-min:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.gen-drop {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  border: 1px dashed rgba(212, 165, 116, 0.55);
+  border-radius: 16px;
+  padding: 12px;
+  min-height: 140px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.gen-drop img {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+.gen-drop span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.gen-file-name {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.gen-overlay.docking .gen-modal {
+  animation: gen-dock 0.42s ease forwards;
+}
+
+@keyframes gen-dock {
+  to {
+    transform: translate(38vw, 42vh) scale(0.16);
+    opacity: 0.15;
+  }
+}
+
+.gen-dock {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 55;
+  display: grid;
+  gap: 8px;
+  width: min(320px, calc(100vw - 36px));
+}
+
+.gen-chip {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 8px;
+  background: rgba(12, 13, 16, 0.92);
+  color: inherit;
+  cursor: pointer;
+}
+
+.gen-chip img,
+.gen-chip-ph {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #1a1d24;
+}
+
+.gen-chip-ph {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.gen-chip b {
+  display: block;
+  font-size: 13px;
+}
+
+.gen-chip small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.gen-chip.done {
+  border-color: rgba(125, 186, 138, 0.55);
+}
+
+.gen-chip.failed {
+  border-color: rgba(196, 92, 74, 0.7);
+}
+
+.gen-chip.failed small {
+  color: #e8a498;
+}
+
+.hub-lib-thumbs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.hub-lib-thumbs img,
+.hub-lib-thumbs video,
+.hub-lib-thumbs canvas,
+.hub-lib-thumbs .lib-ph {
+  width: 100%;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.asset-thumb-canvas {
+  width: 100%;
+  height: 110px;
+  border-radius: 10px;
+  background: #111;
+}
+
+.asset-thumb-canvas.compact {
+  height: 72px;
 }
 
 @media (max-width: 900px) {

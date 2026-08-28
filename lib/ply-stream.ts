@@ -227,9 +227,10 @@ export async function sampleBinaryPly(
   file: File,
   header: PlyHeader,
   onProgress?: (ratio: number, label: string) => void,
+  target = TARGET_POINTS,
 ): Promise<SampledCloud> {
   const little = header.format === "binary_little_endian";
-  const stride = sampleStride(header.vertexCount);
+  const stride = sampleStride(header.vertexCount, target);
   const kept = Math.ceil(header.vertexCount / stride);
   const positions = new Float32Array(kept * 3);
   const colors = new Float32Array(kept * 3);
@@ -337,6 +338,7 @@ export async function sampleBinaryPly(
 export async function samplePlyFile(
   file: File,
   onProgress?: (ratio: number, label: string) => void,
+  target = TARGET_POINTS,
 ): Promise<SampledCloud> {
   onProgress?.(0.02, "读取 PLY 头…");
   const header = await readPlyHeader(file);
@@ -347,7 +349,7 @@ export async function samplePlyFile(
     const text = await file.text();
     const body = text.slice(header.headerLength);
     const lines = body.split(/\r?\n/).filter((line) => line.trim());
-    const stride = sampleStride(header.vertexCount);
+    const stride = sampleStride(header.vertexCount, target);
     const kept = Math.ceil(header.vertexCount / stride);
     const positions = new Float32Array(kept * 3);
     const colors = new Float32Array(kept * 3);
@@ -371,5 +373,5 @@ export async function samplePlyFile(
     }
     return { positions, colors, kept: keepIndex, total: header.vertexCount, stride };
   }
-  return sampleBinaryPly(file, header, onProgress);
+  return sampleBinaryPly(file, header, onProgress, target);
 }
