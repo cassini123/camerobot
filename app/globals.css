@@ -65,8 +65,9 @@ textarea {
 
 .brand b {
   font-family: var(--font-display), sans-serif;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.32em;
   font-size: 15px;
+  font-weight: 700;
 }
 
 .brand span {
@@ -1262,6 +1263,12 @@ input[type="range"]::-moz-range-thumb {
   color: var(--muted);
 }
 
+.hub-card strong {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .hub-card.static {
   position: relative;
 }
@@ -1340,9 +1347,10 @@ input[type="range"]::-moz-range-thumb {
   left: 54px;
   top: 8px;
   z-index: 3;
-  font-size: 11px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.32em;
   color: #d7efe4;
   pointer-events: auto;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
@@ -1351,13 +1359,14 @@ input[type="range"]::-moz-range-thumb {
 .globe-corner em {
   position: absolute;
   left: 54px;
-  top: 36px;
+  top: 28px;
   z-index: 3;
   font-style: normal;
-  letter-spacing: 0.08em;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.05;
+  font-family: var(--font-sans), "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
   color: #e8f7ef;
   pointer-events: auto;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
@@ -1863,7 +1872,7 @@ input[type="range"]::-moz-range-thumb {
   }
   .globe-corner em {
     left: 16px;
-    font-size: 22px;
+    font-size: 16px;
   }
   .product-top {
     padding-left: 28px;
