@@ -11,6 +11,9 @@ const INTRO_KEY = "yunjing-intro-played";
 export function ProductHub() {
   const { openGenerate } = useLibrary();
   const [introDone, setIntroDone] = useState(true);
+  const [hubPick, setHubPick] = useState<"start" | "everec" | "world" | "library" | "globe">(
+    "start",
+  );
   const [aholoReady, setAholoReady] = useState(false);
   const finishIntro = useCallback(() => {
     try {
@@ -47,14 +50,25 @@ export function ProductHub() {
         </a>
       </header>
 
-      <GlobeCorner />
+      <GlobeCorner
+        className={hubPick === "globe" ? "gemini-glow" : ""}
+        onPick={() => setHubPick("globe")}
+      />
 
-      <a className="hub-card hub-predesign" href="https://everec.coze.site">
+      <a
+        className={`hub-card hub-predesign${hubPick === "everec" ? " gemini-glow" : ""}`}
+        href="https://everec.coze.site"
+        onClick={() => setHubPick("everec")}
+      >
         <small>everec</small>
         <strong>start design</strong>
       </a>
 
-      <Link className="hub-card hub-start" href="/yunjing/virtupath">
+      <Link
+        className={`hub-card hub-start${hubPick === "start" ? " gemini-glow" : ""}`}
+        href="/yunjing/virtupath"
+        onClick={() => setHubPick("start")}
+      >
         <span className="hub-plus">+</span>
         <b>Start Create</b>
         <em>进入 VirtuPath</em>
@@ -62,20 +76,25 @@ export function ProductHub() {
 
       <button
         type="button"
-        className="hub-card hub-world"
-        onClick={() =>
+        className={`hub-card hub-world${hubPick === "world" ? " gemini-glow" : ""}`}
+        onClick={() => {
+          setHubPick("world");
           openGenerate(
             "world",
             "一座暖金木结构厅堂，中轴对称，可走入拍摄",
-          )
-        }
+          );
+        }}
       >
         <small>{aholoReady ? "AHOLO WORLD" : "WORLD"}</small>
         <strong>create your world model</strong>
         <em>{aholoReady ? "已接入 Aholo 生成 3DGS" : "配置 AHOLO_API_KEY 后生成"}</em>
       </button>
 
-      <Link className="hub-card hub-library" href="/yunjing/library">
+      <Link
+        className={`hub-card hub-library${hubPick === "library" ? " gemini-glow" : ""}`}
+        href="/yunjing/library"
+        onClick={() => setHubPick("library")}
+      >
         <small>LIBRARY</small>
         <strong>Explore &amp; Assets</strong>
       </Link>

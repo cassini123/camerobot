@@ -445,7 +445,8 @@ textarea {
   backdrop-filter: blur(22px);
 }
 
-.composer.gemini-glow {
+.composer.gemini-glow,
+.gemini-glow {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.55),
     0 0 18px rgba(186, 214, 255, 0.45),
@@ -1247,6 +1248,14 @@ input[type="range"]::-moz-range-thumb {
   border-color: var(--gold);
 }
 
+.hub-card.gemini-glow {
+  border-color: rgba(186, 214, 255, 0.7);
+}
+
+.hub-start.gemini-glow {
+  z-index: 5;
+}
+
 .hub-card em {
   font-style: normal;
   font-size: 12px;
@@ -1352,6 +1361,14 @@ input[type="range"]::-moz-range-thumb {
   color: #e8f7ef;
   pointer-events: auto;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+.globe-corner.gemini-glow .globe-disk {
+  box-shadow:
+    inset -18px -10px 40px rgba(8, 24, 28, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 0 18px rgba(186, 214, 255, 0.45),
+    0 0 42px rgba(140, 180, 255, 0.22);
 }
 
 .globe-disk {
@@ -1661,6 +1678,38 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.lib-toolbar-sub {
+  padding-top: 16px;
+}
+
+.explore-feed {
+  padding: 20px 28px 48px;
+  display: grid;
+  gap: 18px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.explore-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.explore-card video,
+.explore-card img {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 72vh;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #111;
 }
 
 .lib-card {

@@ -73,7 +73,9 @@ export function ShotBoard({
                     items.map((shot) => (
                       <div
                         key={shot.shot_id}
-                        className={shot.shot_id === currentShotId ? "shot active" : "shot"}
+                        className={
+                          shot.shot_id === currentShotId ? "shot active gemini-glow" : "shot"
+                        }
                         onClick={() => onSelectShot(shot.shot_id)}
                       >
                         {shot.title} · {shot.camera.lens}mm

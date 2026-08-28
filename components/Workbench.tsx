@@ -15,13 +15,16 @@ import { applyPresetToShot, type CatalogPreset } from "@/lib/shot-catalog";
 import { filmDuration, filmTAtShot, sampleFilm } from "@/lib/film-timeline";
 import { deepMerge, setPath } from "@/lib/patch";
 import {
-  BUNDLED_EXAMPLE_PLY,
+  FULL_EXAMPLE_GAUSSIANS,
+  FULL_EXAMPLE_PLY_BYTES,
+  FULL_EXAMPLE_PLY_URL,
   exampleSpace,
   resolveSpaceObject,
   SCENE_MODEL_ACCEPT,
   SCENE_MODEL_FORMATS,
 } from "@/lib/space-objects";
 import { formatBytes } from "@/lib/ply-stream";
+import { IDENTITY_FIT } from "@/lib/point-cluster";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
 import Link from "next/link";
@@ -251,7 +254,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     {
       id: "example-ply",
       name: "Example · model.ply",
-      sizeLabel: "2.6 MB 预览",
+      sizeLabel: `${formatBytes(FULL_EXAMPLE_PLY_BYTES)} · ${FULL_EXAMPLE_GAUSSIANS.toLocaleString("en")} Gaussians`,
       source: "bundled",
       ready: false,
     },
@@ -438,7 +441,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           existingId === "example-ply"
             ? nextSplat
               ? "已载入 Example · model.ply（3DGS 原场景）。"
-              : "已载入 Example · model.ply（Drive 扫描的抽样预览）。"
+              : "已载入 Example · model.ply。"
             : nextSplat
               ? `上传成功：${file.name}。已用原场景 3DGS 渲染并加入左侧模型栏。`
               : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
@@ -456,25 +459,80 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }
 
   async function loadBundledExample(item: LibraryItem) {
-    dispatch({ type: "busy", busy: "载入 Example · model.ply…" });
-    setToast({ kind: "ok", text: "正在载入扫描预览…" });
+    dispatch({ type: "busy", busy: "载入 Example · model.ply（3.29GB）…" });
+    setToast({ kind: "ok", text: "正在流式载入 3DGS 原扫描…" });
     try {
-      const res = await fetch(BUNDLED_EXAMPLE_PLY);
-      if (!res.ok) {
-        throw new Error(`无法下载 ${BUNDLED_EXAMPLE_PLY}（${res.status}）`);
+      const meta = await fetch(`${FULL_EXAMPLE_PLY_URL}?meta=1`).then(async (res) => {
+        const json = (await res.json()) as {
+          complete?: boolean;
+          bytes?: number;
+          expectedBytes?: number;
+          hint?: string;
+        };
+        return json;
+      });
+      if (!meta.complete) {
+        await fetch(FULL_EXAMPLE_PLY_URL, { method: "POST" }).catch(() => undefined);
+        throw new Error(
+          meta.hint ||
+            `完整扫描尚未就绪（${formatBytes(meta.bytes ?? 0)} / ${formatBytes(meta.expectedBytes ?? FULL_EXAMPLE_PLY_BYTES)}）。本地运行 ./example/fetch-model.sh，或设置 EXAMPLE_PLY_URL。`,
+        );
       }
-      const blob = await res.blob();
-      const file = new File([blob], "model.ply", { type: "application/octet-stream" });
-      setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
-      await ingestModel(file, item.id);
+      const nextSplat: SceneSplat = {
+        url: FULL_EXAMPLE_PLY_URL,
+        fileName: "model.ply",
+        paged: true,
+        zUp: true,
+        autoFit: true,
+        fit: IDENTITY_FIT,
+      };
+      setLibrary((cur) =>
+        cur.map((it) =>
+          it.id === item.id
+            ? {
+                ...it,
+                ready: true,
+                splat: nextSplat,
+                space: {
+                  ...defaultSpace,
+                  kind: "upload",
+                  format: "ply",
+                  fileName: "model.ply",
+                  model: "model.ply",
+                  description: `Example · model.ply · ${formatBytes(FULL_EXAMPLE_PLY_BYTES)} · ${FULL_EXAMPLE_GAUSSIANS.toLocaleString("en")} Gaussians`,
+                },
+              }
+            : it,
+        ),
+      );
+      setCloud(null);
+      setSplat(nextSplat);
+      setActiveModelId(item.id);
+      dispatch({
+        type: "model",
+        name: "Example · model.ply",
+        space: {
+          ...defaultSpace,
+          kind: "upload",
+          format: "ply",
+          fileName: "model.ply",
+          model: "model.ply",
+        },
+      });
+      setToast({
+        kind: "ok",
+        text: "已载入 Example · model.ply（3.29GB 3DGS 原场景）。",
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "预览载入失败";
+      const message = error instanceof Error ? error.message : "扫描载入失败";
       setLibrary((cur) =>
         cur.map((it) => (it.id === item.id ? { ...it, ready: false, error: message } : it)),
       );
       dispatch({ type: "busy", busy: null });
       setToast({ kind: "err", text: message });
+      return;
     }
+    dispatch({ type: "busy", busy: null });
   }
 
   function applyLibrary(item: LibraryItem) {
@@ -806,7 +864,11 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
               return (
                 <div
                   key={item.scene_id}
-                  className={item.scene_id === scene.scene_id ? "scene active" : "scene"}
+                  className={
+                    item.scene_id === scene.scene_id
+                      ? "scene active gemini-glow"
+                      : "scene"
+                  }
                   onClick={() => dispatch({ type: "scene", id: item.scene_id })}
                 >
                   <div className="scene-head">
@@ -885,7 +947,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             {library.map((item) => (
               <div
                 key={item.id}
-                className={item.id === activeModelId ? "model-lib-item on" : "model-lib-item"}
+                className={
+                  item.id === activeModelId ? "model-lib-item on gemini-glow" : "model-lib-item"
+                }
               >
                 <button type="button" className="model-lib-name" onClick={() => applyLibrary(item)}>
                   <b>{item.name}</b>

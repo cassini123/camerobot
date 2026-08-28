@@ -119,9 +119,9 @@ function MovableMesh({
       <meshStandardMaterial
         color={obj.color || TYPE_COLOR[obj.type] || "#666"}
         transparent
-        opacity={selected ? 0.55 : 0.28}
-        emissive={selected ? "#ffffff" : "#000000"}
-        emissiveIntensity={selected ? 0.18 : 0}
+        opacity={selected ? 0.62 : 0.28}
+        emissive={selected ? "#c5dcff" : "#000000"}
+        emissiveIntensity={selected ? 0.55 : 0}
         wireframe={false}
       />
     </mesh>
