@@ -13,6 +13,8 @@ export type LibraryAsset = {
   prompt?: string;
   remoteUrl?: string;
   previewUrl?: string;
+  plyUrl?: string;
+  spzUrl?: string;
 };
 
 export function inferAssetKind(file: File, hint?: AssetKind): AssetKind {

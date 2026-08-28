@@ -21,6 +21,8 @@ import {
   SCENE_MODEL_ACCEPT,
   SCENE_MODEL_FORMATS,
 } from "@/lib/space-objects";
+import { GENERATED_WORLDS } from "@/lib/generated-worlds";
+import { heroView } from "@/lib/view-frame";
 import { formatBytes } from "@/lib/ply-stream";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
@@ -70,13 +72,17 @@ type LibraryItem = {
   id: string;
   name: string;
   sizeLabel: string;
-  source: "example" | "upload" | "bundled";
+  source: "example" | "upload" | "bundled" | "generated";
   file?: File;
   space?: SpaceModel;
   geometry?: BufferGeometry | null;
   splat?: SceneSplat | null;
   ready: boolean;
   error?: string;
+  previewUrl?: string;
+  remoteUrl?: string;
+  plyUrl?: string;
+  spzUrl?: string;
 };
 
 type Toast = { kind: "ok" | "err"; text: string };
@@ -255,6 +261,17 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       source: "bundled",
       ready: false,
     },
+    ...GENERATED_WORLDS.map((world) => ({
+      id: world.id,
+      name: world.name,
+      sizeLabel: "3DGS SPZ",
+      source: "generated" as const,
+      ready: false,
+      previewUrl: world.pano,
+      remoteUrl: world.spzUrl,
+      plyUrl: world.plyUrl,
+      spzUrl: world.spzUrl,
+    })),
   ]);
   const [activeModelId, setActiveModelId] = useState("example");
   const toneInputRef = useRef<HTMLInputElement>(null);
@@ -274,8 +291,12 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           id: item.id,
           name: item.name,
           sizeLabel: item.sizeLabel,
-          source: "upload" as const,
+          source: (item.source === "generated" ? "generated" : "upload") as LibraryItem["source"],
           ready: false,
+          previewUrl: item.previewUrl,
+          remoteUrl: item.remoteUrl,
+          plyUrl: item.plyUrl,
+          spzUrl: item.spzUrl,
         }));
       return extra.length ? [...cur, ...extra] : cur;
     });
@@ -358,7 +379,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function ingestModel(file: File, existingId?: string) {
+  async function ingestModel(file: File, existingId?: string, source: LibraryItem["source"] = "upload") {
     const id = existingId ?? `${file.name}-${file.size}-${Date.now()}`;
     if (!existingId) {
       setLibrary((cur) => [
@@ -367,13 +388,18 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           id,
           name: file.name,
           sizeLabel: formatBytes(file.size),
-          source: "upload",
+          source,
           file,
           ready: false,
         },
       ]);
     }
-    void addFromFile(file, { kind: "scene", source: existingId === "example-ply" ? "bundled" : "upload" });
+    if (!existingId?.startsWith("world-")) {
+      void addFromFile(file, {
+        kind: "scene",
+        source: existingId === "example-ply" ? "bundled" : source === "generated" ? "generated" : "upload",
+      });
+    }
     setToast({
       kind: "ok",
       text: `开始解析 ${file.name}（${formatBytes(file.size)}）。大文件只抽样读取，不会整包进内存。`,
@@ -421,16 +447,30 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             : item,
         ),
       );
+      const world = GENERATED_WORLDS.find((item) => item.id === id);
+      const nextSource: LibraryItem["source"] =
+        existingId === "example-ply"
+          ? "bundled"
+          : world || source === "generated"
+            ? "generated"
+            : source;
       applyLibrary({
         id,
-        name: existingId === "example-ply" ? "Example · model.ply" : file.name,
+        name:
+          existingId === "example-ply"
+            ? "Example · model.ply"
+            : world?.name ?? file.name,
         sizeLabel: formatBytes(file.size),
-        source: existingId === "example-ply" ? "bundled" : "upload",
+        source: nextSource,
         file,
         ready: true,
         space: labeled,
         geometry,
         splat: nextSplat,
+        previewUrl: world?.pano,
+        remoteUrl: world?.spzUrl,
+        plyUrl: world?.plyUrl,
+        spzUrl: world?.spzUrl,
       });
       setToast({
         kind: "ok",
@@ -477,6 +517,34 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     }
   }
 
+  async function loadRemoteModel(item: LibraryItem) {
+    const url = item.spzUrl || item.remoteUrl;
+    if (!url) {
+      setToast({ kind: "err", text: "这个场景没有可载入的模型地址" });
+      return;
+    }
+    dispatch({ type: "busy", busy: `载入 ${item.name}…` });
+    setToast({ kind: "ok", text: `正在拉取 ${item.name} 的 3DGS…` });
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`无法下载场景（${res.status}）`);
+      }
+      const blob = await res.blob();
+      const ext = url.toLowerCase().includes(".ply") ? "ply" : "spz";
+      const file = new File([blob], `${item.name}.${ext}`, { type: "application/octet-stream" });
+      setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
+      await ingestModel(file, item.id, "generated");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "场景载入失败";
+      setLibrary((cur) =>
+        cur.map((it) => (it.id === item.id ? { ...it, ready: false, error: message } : it)),
+      );
+      dispatch({ type: "busy", busy: null });
+      setToast({ kind: "err", text: message });
+    }
+  }
+
   function applyLibrary(item: LibraryItem) {
     if (item.source === "example") {
       restoreExample();
@@ -486,6 +554,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     }
     if (item.source === "bundled" && !item.ready) {
       void loadBundledExample(item);
+      return;
+    }
+    if (item.source === "generated" && !item.ready) {
+      void loadRemoteModel(item);
       return;
     }
     if (!item.ready || !item.space) {
@@ -517,6 +589,8 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     setSelectedId(nextSpace.objects.find((obj) => obj.type !== "ground")?.id ?? null);
     setActiveModelId(item.id);
     setModelOpen(false);
+    setPreviewing(false);
+    setFilmPlaying(false);
     setToast({ kind: "ok", text: `已 Apply ${item.name}` });
   }
 
@@ -888,22 +962,27 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
                 className={item.id === activeModelId ? "model-lib-item on" : "model-lib-item"}
               >
                 <button type="button" className="model-lib-name" onClick={() => applyLibrary(item)}>
-                  <b>{item.name}</b>
-                  <small>
-                    {item.sizeLabel}
-                    {item.ready
-                      ? " · 可 Apply"
-                      : item.error
-                        ? ` · ${item.error}`
-                        : item.source === "bundled"
-                          ? " · 点击载入"
-                          : " · 解析中"}
-                  </small>
+                  {item.previewUrl ? (
+                    <img className="model-lib-thumb" src={item.previewUrl} alt="" />
+                  ) : null}
+                  <span>
+                    <b>{item.name}</b>
+                    <small>
+                      {item.sizeLabel}
+                      {item.ready
+                        ? " · 可 Apply"
+                        : item.error
+                          ? ` · ${item.error}`
+                          : item.source === "bundled" || item.source === "generated"
+                            ? " · 点击载入"
+                            : " · 解析中"}
+                    </small>
+                  </span>
                 </button>
                 <button
                   type="button"
                   className="btn"
-                  disabled={!item.ready && item.source === "upload" && !item.file}
+                  disabled={!item.ready && item.source === "upload" && !item.file && !item.remoteUrl}
                   onClick={() => applyLibrary(item)}
                 >
                   Apply
@@ -939,6 +1018,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
 
         <SpaceViewer
           space={state.space}
+          viewKey={activeModelId}
           shots={state.shots}
           currentShotId={
             filmPlaying

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatBytes } from "@/lib/ply-stream";
+import { mergeLibraryAssets } from "@/lib/generated-worlds";
 import {
   inferAssetKind,
   type AssetKind,
@@ -95,7 +96,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [generate, setGenerate] = useState<GenerateOpen>(null);
 
   useEffect(() => {
-    setAssets(loadMeta());
+    setAssets(mergeLibraryAssets(loadMeta()));
   }, []);
 
   const addAsset = useCallback(async (asset: LibraryAsset, blob?: Blob) => {
@@ -106,7 +107,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       const next = [asset, ...cur.filter((item) => item.id !== asset.id)];
       const slim = next.map((item) => {
         const copy = { ...item };
-        delete copy.previewUrl;
+        if (copy.previewUrl?.startsWith("blob:")) {
+          delete copy.previewUrl;
+        }
         return copy;
       });
       localStorage.setItem(META_KEY, JSON.stringify(slim));

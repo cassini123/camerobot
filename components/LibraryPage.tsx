@@ -62,10 +62,10 @@ export function LibraryPage() {
         ) : (
           shown.map((item) => (
             <article key={item.id} className="lib-card">
-              {item.kind === "image" && item.previewUrl ? (
-                <img src={item.previewUrl} alt="" />
-              ) : item.kind === "video" && item.previewUrl ? (
+              {item.kind === "video" && item.previewUrl ? (
                 <video src={item.previewUrl} muted />
+              ) : item.previewUrl ? (
+                <img src={item.previewUrl} alt="" />
               ) : (
                 <div className="lib-ph">{item.kind}</div>
               )}
@@ -76,7 +76,12 @@ export function LibraryPage() {
               {item.prompt ? <p>{item.prompt}</p> : null}
               {item.remoteUrl ? (
                 <a href={item.remoteUrl} target="_blank" rel="noreferrer">
-                  下载模型
+                  {item.kind === "scene" ? "下载 SPZ" : "下载模型"}
+                </a>
+              ) : null}
+              {item.plyUrl ? (
+                <a href={item.plyUrl} target="_blank" rel="noreferrer">
+                  下载 PLY
                 </a>
               ) : null}
             </article>
