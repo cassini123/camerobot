@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import {
   EXPLORE_FEED,
   MODEL_FORMATS,
@@ -8,7 +9,7 @@ import {
   type ExploreItem,
 } from "@/lib/library-explore";
 
-function HoverVideo({
+function HoverTile({
   item,
   onOpen,
 }: {
@@ -37,7 +38,11 @@ function HoverVideo({
         video.currentTime = 0;
       }}
     >
-      <video ref={ref} src={item.src} muted loop playsInline preload="metadata" />
+      {item.kind === "image" ? (
+        <img src={item.src} alt="" />
+      ) : (
+        <video ref={ref} src={item.src} muted loop playsInline preload="metadata" />
+      )}
       <b>{item.title}</b>
       <small>{item.kicker}</small>
     </article>
@@ -52,7 +57,7 @@ export function ExploreMasonry({ items = EXPLORE_FEED }: { items?: ExploreItem[]
       <div className="explore-flow" aria-hidden="true" />
       <div className="explore-masonry">
         {items.map((item) => (
-          <HoverVideo key={item.id} item={item} onOpen={() => setOpen(item)} />
+          <HoverTile key={item.id} item={item} onOpen={() => setOpen(item)} />
         ))}
       </div>
       {open ? (
@@ -67,18 +72,42 @@ export function ExploreMasonry({ items = EXPLORE_FEED }: { items?: ExploreItem[]
             <button type="button" className="panel-x" onClick={() => setOpen(null)}>
               ×
             </button>
-            <video src={open.src} controls autoPlay loop playsInline />
+            {open.kind === "image" ? (
+              <img src={open.src} alt="" />
+            ) : (
+              <video src={open.src} controls autoPlay loop playsInline />
+            )}
             <aside>
               <small>{open.kicker}</small>
               <h2>{open.title}</h2>
               <p>{open.body}</p>
+              {open.href ? (
+                <Link className="btn primary" href={open.href}>
+                  在 VirtuPath 使用
+                </Link>
+              ) : null}
               <p className="explore-dl-label">下载</p>
               <div className="explore-dl">
-                {MODEL_FORMATS.map((format) => (
-                  <a key={format} href={downloadUrl(open.id, format)} download>
-                    {format}
-                  </a>
-                ))}
+                {open.plyUrl || open.spzUrl ? (
+                  <>
+                    {open.spzUrl ? (
+                      <a href={open.spzUrl} target="_blank" rel="noreferrer">
+                        spz
+                      </a>
+                    ) : null}
+                    {open.plyUrl ? (
+                      <a href={open.plyUrl} target="_blank" rel="noreferrer">
+                        ply
+                      </a>
+                    ) : null}
+                  </>
+                ) : (
+                  MODEL_FORMATS.map((format) => (
+                    <a key={format} href={downloadUrl(open.id, format)} download>
+                      {format}
+                    </a>
+                  ))
+                )}
               </div>
             </aside>
           </div>

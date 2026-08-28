@@ -14,6 +14,7 @@ type Disposable = {
   position: { set: (x: number, y: number, z: number) => void };
   updateMatrixWorld?: (force?: boolean) => void;
   raycast?: () => void;
+  initialized?: Promise<unknown>;
 };
 
 function applyFit(mesh: Disposable, fit: SceneSplat["fit"]) {
@@ -27,6 +28,43 @@ function disableRaycast(node: Object3D) {
   node.traverse((child) => {
     child.raycast = () => {};
   });
+}
+
+function worldBox(node: Object3D): Box3 {
+  node.updateMatrixWorld?.(true);
+  const box = new Box3().setFromObject(node);
+  if (!box.isEmpty()) {
+    return box;
+  }
+  node.traverse((child) => {
+    const geom = (child as Object3D & { geometry?: { computeBoundingBox?: () => void; boundingBox?: Box3 | null } })
+      .geometry;
+    if (!geom) {
+      return;
+    }
+    geom.computeBoundingBox?.();
+    if (geom.boundingBox && !geom.boundingBox.isEmpty()) {
+      box.union(geom.boundingBox.clone().applyMatrix4(child.matrixWorld));
+    }
+  });
+  return box;
+}
+
+function tryAutoFit(mesh: Disposable & Object3D): boolean {
+  const box = worldBox(mesh);
+  if (box.isEmpty()) {
+    return false;
+  }
+  const size = box.getSize(new Vector3());
+  const span = Math.max(size.x, size.y, size.z, 0.001);
+  applyFit(mesh, {
+    cx: (box.min.x + box.max.x) / 2,
+    minY: box.min.y,
+    cz: (box.min.z + box.max.z) / 2,
+    scale: 16 / span,
+  });
+  disableRaycast(mesh);
+  return true;
 }
 
 export function SplatCloud({
@@ -48,7 +86,42 @@ export function SplatCloud({
   useEffect(() => {
     let cancelled = false;
     let spark: Object3D | null = null;
-    let mesh: Disposable | null = null;
+    let mesh: (Disposable & Object3D) | null = null;
+    let fitTimer = 0;
+    let fitting = false;
+    let finished = false;
+
+    function finishReady() {
+      if (cancelled || finished) {
+        return;
+      }
+      finished = true;
+      invalidate();
+      onReadyRef.current?.();
+    }
+
+    function scheduleAutoFit() {
+      if (!mesh || cancelled || finished || fitting) {
+        return;
+      }
+      if (!splat.autoFit) {
+        finishReady();
+        return;
+      }
+      fitting = true;
+      let tries = 0;
+      const run = () => {
+        if (cancelled || !mesh || finished) {
+          return;
+        }
+        if (tryAutoFit(mesh) || tries++ >= 90) {
+          finishReady();
+          return;
+        }
+        fitTimer = window.setTimeout(run, 50);
+      };
+      run();
+    }
 
     (async () => {
       const { SparkRenderer, SplatMesh } = await import("@sparkjsdev/spark");
@@ -66,32 +139,13 @@ export function SplatCloud({
         lod: boolean;
         paged: boolean;
         raycastable: boolean;
-        onLoad: (loaded: unknown) => void;
+        onLoad: () => void;
       } = {
         fileName: splat.fileName,
         lod: true,
         paged: splat.paged ?? Boolean(splat.url),
         raycastable: false,
-        onLoad: (loaded) => {
-          if (!splat.autoFit) {
-            return;
-          }
-          const node = loaded as unknown as Disposable & Object3D;
-          node.updateMatrixWorld?.(true);
-          const box = new Box3().setFromObject(node);
-          if (box.isEmpty()) {
-            return;
-          }
-          const size = box.getSize(new Vector3());
-          const span = Math.max(size.x, size.y, size.z, 0.001);
-          applyFit(node, {
-            cx: (box.min.x + box.max.x) / 2,
-            minY: box.min.y,
-            cz: (box.min.z + box.max.z) / 2,
-            scale: 16 / span,
-          });
-          disableRaycast(node);
-        },
+        onLoad: () => scheduleAutoFit(),
       };
       if (splat.url) {
         options.url = splat.url;
@@ -99,7 +153,7 @@ export function SplatCloud({
       if (splat.fileBytes) {
         options.fileBytes = splat.fileBytes;
       }
-      mesh = new SplatMesh(options) as unknown as Disposable;
+      mesh = new SplatMesh(options) as unknown as Disposable & Object3D;
       mesh.raycast = () => {};
       if (splat.zUp) {
         mesh.rotation.x = -Math.PI / 2;
@@ -110,11 +164,17 @@ export function SplatCloud({
         applyFit(mesh, splat.fit);
       }
       scene.add(spark);
-      scene.add(mesh as unknown as Object3D);
+      scene.add(mesh);
       disableRaycast(spark);
-      disableRaycast(mesh as unknown as Object3D);
+      disableRaycast(mesh);
       invalidate();
-      onReadyRef.current?.();
+      const initialized = mesh.initialized;
+      if (initialized) {
+        await initialized;
+        scheduleAutoFit();
+      } else if (!splat.autoFit) {
+        finishReady();
+      }
     })().catch((error: unknown) => {
       console.error("Spark splat load failed", error);
       if (!cancelled) {
@@ -125,6 +185,7 @@ export function SplatCloud({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(fitTimer);
       mesh?.removeFromParent?.();
       spark?.removeFromParent?.();
       mesh?.dispose?.();

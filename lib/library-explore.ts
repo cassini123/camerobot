@@ -1,3 +1,5 @@
+import { GAME_WORLD_WORLDS } from "./generated-worlds";
+
 export const MODEL_FORMATS = ["plz", "ply", "usdz", "obj", "spz", "fbx"] as const;
 export type ModelFormat = (typeof MODEL_FORMATS)[number];
 
@@ -5,12 +7,15 @@ export type ExploreItem = {
   id: string;
   title: string;
   body: string;
-  kind: "video";
+  kind: "video" | "image";
   src: string;
   kicker: string;
   span: "tall" | "wide" | "square";
   who?: string;
   placeId?: string;
+  href?: string;
+  plyUrl?: string;
+  spzUrl?: string;
 };
 
 export const EXPLORE_FEED: ExploreItem[] = [
@@ -106,4 +111,23 @@ export const EXPLORE_FEED: ExploreItem[] = [
 
 export function downloadUrl(id: string, format: ModelFormat): string {
   return `/api/explore/download/${id}/${format}`;
+}
+
+export function gameWorldExploreItems(): ExploreItem[] {
+  const spans: Array<ExploreItem["span"]> = ["wide", "tall", "square", "wide"];
+  const who = ["you", "heng", "bei", "heng"];
+  return GAME_WORLD_WORLDS.map((world, index) => ({
+    id: world.id,
+    title: world.name,
+    body: world.prompt,
+    kind: "image" as const,
+    src: world.pano,
+    kicker: "生成世界 · 全景",
+    span: spans[index] ?? "square",
+    who: who[index],
+    placeId: world.id,
+    href: `/yunjing/virtupath?scene=${encodeURIComponent(world.id)}`,
+    plyUrl: world.plyUrl,
+    spzUrl: world.spzUrl,
+  }));
 }

@@ -19,6 +19,49 @@ function extOf(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
 }
 
+const SPARK_EXTS = new Set(["ply", "spz", "splat", "ksplat", "glb", "gltf"]);
+
+/** Spark 用 fileName 判断格式；中文名会导致 SPZ/PLY 被当成未知类型，场景是空的。 */
+export function sparkFileName(name: string): string {
+  const rawExt = extOf(name);
+  const ext = SPARK_EXTS.has(rawExt) ? rawExt : "spz";
+  const base = name
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "scene";
+  return `${base}.${ext}`;
+}
+
+export function modelUrlExtension(url: string): string {
+  return url.toLowerCase().match(/\.(ply|spz|splat|ksplat|glb|gltf)(?:$|\?)/)?.[1] ?? "spz";
+}
+
+export function remoteSparkScene(opts: {
+  url: string;
+  fileName: string;
+  format: string;
+  label: string;
+}): { space: SpaceModel; visual: SceneVisual } {
+  const fileName = sparkFileName(opts.fileName);
+  const ext = SPARK_EXTS.has(opts.format) ? opts.format : modelUrlExtension(opts.url);
+  return {
+    space: placeholderSpace(fileName, ext, opts.label),
+    visual: {
+      mode: "spark",
+      geometry: null,
+      splat: {
+        url: opts.url,
+        fileName,
+        paged: ext === "ply",
+        zUp: true,
+        autoFit: true,
+        fit: IDENTITY_FIT,
+      },
+    },
+  };
+}
+
 function geometryFromArrays(
   positions: Float32Array,
   colors: Float32Array,
@@ -218,7 +261,7 @@ async function sparkVisual(
   return {
     mode: "spark",
     geometry,
-    splat: { fileBytes, fileName, zUp, fit, autoFit },
+    splat: { fileBytes, fileName: sparkFileName(fileName), zUp, fit, autoFit },
   };
 }
 
@@ -272,7 +315,7 @@ export async function loadUploadedScene(
       visual: {
         mode: "spark",
         geometry,
-        splat: { fileBytes: bytes.slice(0), fileName: file.name, zUp, fit },
+        splat: { fileBytes: bytes.slice(0), fileName: sparkFileName(file.name), zUp, fit },
       },
     };
   }
@@ -305,7 +348,7 @@ export async function loadUploadedScene(
         geometry,
         splat: {
           url,
-          fileName: file.name,
+          fileName: sparkFileName(file.name),
           paged: true,
           zUp,
           fit,
@@ -325,7 +368,7 @@ export async function loadUploadedScene(
       geometry,
       splat: {
         fileBytes: splatBytes,
-        fileName: `${file.name.replace(/\.[^.]+$/, "")}.splat`,
+        fileName: sparkFileName(`${file.name.replace(/\.[^.]+$/, "")}.splat`),
         zUp: false,
         fit: IDENTITY_FIT,
       },
