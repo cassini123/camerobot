@@ -12,7 +12,13 @@ import { sampleStillFrames } from "@/lib/still-frames";
 import { EXAMPLE_VISUAL_DNA, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
-import { exampleSpace, resolveSpaceObject, SCENE_MODEL_ACCEPT, SCENE_MODEL_FORMATS } from "@/lib/space-objects";
+import {
+  BUNDLED_EXAMPLE_PLY,
+  exampleSpace,
+  resolveSpaceObject,
+  SCENE_MODEL_ACCEPT,
+  SCENE_MODEL_FORMATS,
+} from "@/lib/space-objects";
 import { formatBytes } from "@/lib/ply-stream";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
@@ -57,7 +63,7 @@ type LibraryItem = {
   id: string;
   name: string;
   sizeLabel: string;
-  source: "example" | "upload";
+  source: "example" | "upload" | "bundled";
   file?: File;
   space?: SpaceModel;
   geometry?: BufferGeometry | null;
@@ -228,6 +234,13 @@ export function Workbench() {
       space: defaultSpace,
       geometry: null,
     },
+    {
+      id: "example-ply",
+      name: "Example · model.ply",
+      sizeLabel: "2.6 MB 预览",
+      source: "bundled",
+      ready: false,
+    },
   ]);
   const [activeModelId, setActiveModelId] = useState("example");
   const toneInputRef = useRef<HTMLInputElement>(null);
@@ -332,9 +345,9 @@ export function Workbench() {
       );
       applyLibrary({
         id,
-        name: file.name,
+        name: existingId === "example-ply" ? "Example · model.ply" : file.name,
         sizeLabel: formatBytes(file.size),
-        source: "upload",
+        source: existingId === "example-ply" ? "bundled" : "upload",
         file,
         ready: true,
         space: labeled,
@@ -342,7 +355,10 @@ export function Workbench() {
       });
       setToast({
         kind: "ok",
-        text: `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
+        text:
+          existingId === "example-ply"
+            ? "已载入 Example · model.ply（Drive 扫描的抽样预览）。"
+            : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "模型解析失败";
@@ -356,6 +372,28 @@ export function Workbench() {
     dispatch({ type: "busy", busy: null });
   }
 
+  async function loadBundledExample(item: LibraryItem) {
+    dispatch({ type: "busy", busy: "载入 Example · model.ply…" });
+    setToast({ kind: "ok", text: "正在载入扫描预览…" });
+    try {
+      const res = await fetch(BUNDLED_EXAMPLE_PLY);
+      if (!res.ok) {
+        throw new Error(`无法下载 ${BUNDLED_EXAMPLE_PLY}（${res.status}）`);
+      }
+      const blob = await res.blob();
+      const file = new File([blob], "model.ply", { type: "application/octet-stream" });
+      setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
+      await ingestModel(file, item.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "预览载入失败";
+      setLibrary((cur) =>
+        cur.map((it) => (it.id === item.id ? { ...it, ready: false, error: message } : it)),
+      );
+      dispatch({ type: "busy", busy: null });
+      setToast({ kind: "err", text: message });
+    }
+  }
+
   function applyLibrary(item: LibraryItem) {
     if (item.source === "example") {
       restoreExample();
@@ -363,8 +401,12 @@ export function Workbench() {
       setToast({ kind: "ok", text: "已 Apply Example 厅堂。" });
       return;
     }
+    if (item.source === "bundled" && !item.ready) {
+      void loadBundledExample(item);
+      return;
+    }
     if (!item.ready || !item.space) {
-      if (item.file && item.error) {
+      if (item.file) {
         void ingestModel(item.file, item.id);
       } else {
         setToast({ kind: "err", text: item.error || "模型尚未解析完成" });
@@ -712,7 +754,13 @@ export function Workbench() {
                   <b>{item.name}</b>
                   <small>
                     {item.sizeLabel}
-                    {item.ready ? " · 可 Apply" : item.error ? ` · ${item.error}` : " · 解析中"}
+                    {item.ready
+                      ? " · 可 Apply"
+                      : item.error
+                        ? ` · ${item.error}`
+                        : item.source === "bundled"
+                          ? " · 点击载入"
+                          : " · 解析中"}
                   </small>
                 </button>
                 <button

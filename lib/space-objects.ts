@@ -5,6 +5,9 @@ export const SCENE_MODEL_ACCEPT =
 
 export const SCENE_MODEL_FORMATS = "PLY · GLB · GLTF · SPLAT · KSPLAT · SPZ";
 
+/** Vercel-safe sampled preview of the 3.3GB Drive reconstruction. */
+export const BUNDLED_EXAMPLE_PLY = "/example/model.ply";
+
 export function exampleSpace(base: SpaceModel): SpaceModel {
   return {
     ...base,
