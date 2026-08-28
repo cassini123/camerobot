@@ -8,6 +8,21 @@ export function filmDuration(shots: Shot[]): number {
   return shots.reduce((sum, shot) => sum + shotDuration(shot), 0);
 }
 
+export function filmTAtShot(shots: Shot[], shotId: string): number {
+  const total = filmDuration(shots);
+  if (!total) {
+    return 0;
+  }
+  let acc = 0;
+  for (const shot of shots) {
+    if (shot.shot_id === shotId) {
+      return acc / total;
+    }
+    acc += shotDuration(shot);
+  }
+  return 0;
+}
+
 export function sampleFilm(
   shots: Shot[],
   t01: number,

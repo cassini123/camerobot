@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useThree } from "@react-three/fiber";
 import { Box3, Vector3, type Object3D } from "three";
 import type { SceneSplat } from "@/lib/scene-visual";
@@ -13,6 +13,7 @@ type Disposable = {
   scale: { setScalar: (s: number) => void };
   position: { set: (x: number, y: number, z: number) => void };
   updateMatrixWorld?: (force?: boolean) => void;
+  raycast?: () => void;
 };
 
 function applyFit(mesh: Disposable, fit: SceneSplat["fit"]) {
@@ -21,8 +22,28 @@ function applyFit(mesh: Disposable, fit: SceneSplat["fit"]) {
   mesh.position.set(-cx * scale, -minY * scale, -cz * scale);
 }
 
-export function SplatCloud({ splat }: { splat: SceneSplat }) {
+function disableRaycast(node: Object3D) {
+  node.raycast = () => {};
+  node.traverse((child) => {
+    child.raycast = () => {};
+  });
+}
+
+export function SplatCloud({
+  splat,
+  onReady,
+  onError,
+}: {
+  splat: SceneSplat;
+  onReady?: () => void;
+  onError?: () => void;
+}) {
   const { gl, scene, invalidate } = useThree();
+  const [failed, setFailed] = useState(false);
+  const onReadyRef = useRef(onReady);
+  const onErrorRef = useRef(onError);
+  onReadyRef.current = onReady;
+  onErrorRef.current = onError;
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +63,7 @@ export function SplatCloud({ splat }: { splat: SceneSplat }) {
         fileBytes: splat.fileBytes,
         fileName: splat.fileName,
         lod: true,
+        raycastable: false,
         onLoad: (loaded) => {
           if (!splat.autoFit) {
             return;
@@ -60,8 +82,10 @@ export function SplatCloud({ splat }: { splat: SceneSplat }) {
             cz: (box.min.z + box.max.z) / 2,
             scale: 16 / span,
           });
+          disableRaycast(node);
         },
       }) as unknown as Disposable;
+      mesh.raycast = () => {};
       if (splat.zUp) {
         mesh.rotation.x = -Math.PI / 2;
       } else {
@@ -72,9 +96,16 @@ export function SplatCloud({ splat }: { splat: SceneSplat }) {
       }
       scene.add(spark);
       scene.add(mesh as unknown as Object3D);
+      disableRaycast(spark);
+      disableRaycast(mesh as unknown as Object3D);
       invalidate();
+      onReadyRef.current?.();
     })().catch((error: unknown) => {
       console.error("Spark splat load failed", error);
+      if (!cancelled) {
+        setFailed(true);
+        onErrorRef.current?.();
+      }
     });
 
     return () => {
@@ -86,5 +117,8 @@ export function SplatCloud({ splat }: { splat: SceneSplat }) {
     };
   }, [splat, gl, scene, invalidate]);
 
+  if (failed) {
+    return null;
+  }
   return null;
 }

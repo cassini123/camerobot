@@ -10,6 +10,7 @@ import {
   movementOf,
   searchShotBoard,
   type ShotPrimary,
+  type CatalogPreset,
 } from "@/lib/shot-catalog";
 
 export function ShotBoard({
@@ -21,7 +22,7 @@ export function ShotBoard({
   shots: Shot[];
   currentShotId: string | null;
   onSelectShot: (id: string) => void;
-  onPreset: (instruction: string) => void;
+  onPreset: (preset: CatalogPreset) => void;
 }) {
   const [query, setQuery] = useState("");
   const [primary, setPrimary] = useState<ShotPrimary>("movement");
@@ -95,7 +96,7 @@ export function ShotBoard({
                   key={item.id}
                   type="button"
                   className="shot preset"
-                  onClick={() => onPreset(item.instruction)}
+                  onClick={() => onPreset(item)}
                 >
                   {item.label}
                   <small>{item.hint}</small>

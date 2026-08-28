@@ -4,12 +4,20 @@ import Link from "next/link";
 import { IntroSplash } from "./IntroSplash";
 import { GlobeCorner } from "./GlobeCorner";
 import { useLibrary } from "./LibraryProvider";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export function ProductHub() {
   const { openGenerate } = useLibrary();
   const [introDone, setIntroDone] = useState(false);
+  const [aholoReady, setAholoReady] = useState(false);
   const finishIntro = useCallback(() => setIntroDone(true), []);
+
+  useEffect(() => {
+    void fetch("/api/generate")
+      .then((res) => res.json())
+      .then((json: { configured?: boolean }) => setAholoReady(Boolean(json.configured)))
+      .catch(() => setAholoReady(false));
+  }, []);
 
   return (
     <div className="product-hub">
@@ -38,10 +46,16 @@ export function ProductHub() {
       <button
         type="button"
         className="hub-card hub-world"
-        onClick={() => openGenerate("world", "create your world model")}
+        onClick={() =>
+          openGenerate(
+            "world",
+            "一座暖金木结构厅堂，中轴对称，可走入拍摄",
+          )
+        }
       >
-        <small>WORLD</small>
+        <small>{aholoReady ? "AHOLO WORLD" : "WORLD"}</small>
         <strong>create your world model</strong>
+        <em>{aholoReady ? "已接入 Aholo 生成 3DGS" : "配置 AHOLO_API_KEY 后生成"}</em>
       </button>
 
       <Link className="hub-card hub-library" href="/yunjing/library">

@@ -42,6 +42,7 @@ type LibraryContextValue = {
     remoteUrl?: string;
     previewUrl?: string;
   }) => Promise<LibraryAsset>;
+  getBlob: (id: string) => Promise<Blob | undefined>;
   openGenerate: (kind: GenerateKind, prompt?: string) => void;
 };
 
@@ -56,6 +57,16 @@ async function openDb(): Promise<IDBDatabase> {
       }
     };
     req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function getBlob(id: string): Promise<Blob | undefined> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("blobs", "readonly");
+    const req = tx.objectStore("blobs").get(id);
+    req.onsuccess = () => resolve(req.result as Blob | undefined);
     req.onerror = () => reject(req.error);
   });
 }
@@ -172,6 +183,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       addFromFile,
       addFromDataUrl,
       addGenerated,
+      getBlob,
       openGenerate: (kind: GenerateKind, prompt?: string) =>
         setGenerate({ kind, prompt }),
     }),
@@ -187,6 +199,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           initialPrompt={generate.prompt ?? ""}
           onClose={() => setGenerate(null)}
           addGenerated={addGenerated}
+          addFromFile={addFromFile}
         />
       ) : null}
     </LibraryContext.Provider>

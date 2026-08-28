@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectGenerateIntent } from "../lib/generate-intent";
-import { filmDuration, sampleFilm } from "../lib/film-timeline";
-import { searchShotBoard, SHOT_PRESETS } from "../lib/shot-catalog";
+import { filmDuration, filmTAtShot, sampleFilm } from "../lib/film-timeline";
+import { searchShotBoard, SHOT_PRESETS, applyPresetToShot } from "../lib/shot-catalog";
 import type { Shot } from "../lib/types";
 
 function shot(id: string, duration: number, type: string): Shot {
@@ -40,6 +40,7 @@ describe("film timeline", () => {
     expect(filmDuration(shots)).toBe(4);
     expect(sampleFilm(shots, 0.25)?.shot.shot_id).toBe("a");
     expect(sampleFilm(shots, 0.75)?.shot.shot_id).toBe("b");
+    expect(filmTAtShot(shots, "b")).toBe(0.5);
   });
 });
 
@@ -47,5 +48,27 @@ describe("shot board search", () => {
   it("filters presets by color keyword", () => {
     const { presets } = searchShotBoard("暖", [], SHOT_PRESETS);
     expect(presets.some((item) => item.id === "warm")).toBe(true);
+  });
+
+  it("keeps OTS / establishing / character and drops ECU CU WS", () => {
+    const ids = SHOT_PRESETS.map((item) => item.id);
+    expect(ids).toContain("ots");
+    expect(ids).toContain("establishing");
+    expect(ids).toContain("character");
+    expect(ids).toContain("fisheye");
+    expect(ids).toContain("black_soft");
+    expect(ids).toContain("white_soft");
+    expect(ids).not.toContain("ecu");
+    expect(ids).not.toContain("cu");
+    expect(ids).not.toContain("ws");
+    expect(ids).not.toContain("ms");
+  });
+
+  it("applies look and fisheye immediately", () => {
+    const base = shot("a", 2, "STATIC");
+    const fisheye = SHOT_PRESETS.find((item) => item.id === "fisheye")!;
+    const soft = SHOT_PRESETS.find((item) => item.id === "black_soft")!;
+    expect(applyPresetToShot(fisheye, base).lensStyle).toBe("fisheye");
+    expect(applyPresetToShot(soft, base).look).toBe("black_soft");
   });
 });

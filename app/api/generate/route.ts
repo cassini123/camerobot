@@ -54,13 +54,29 @@ export async function GET(req: NextRequest) {
   const kind = req.nextUrl.searchParams.get("kind") === "world" ? "world" : "object";
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
-    return NextResponse.json({ error: "缺少 id" }, { status: 400 });
+    return NextResponse.json({ configured: hasAholoKey() });
   }
   if (!hasAholoKey()) {
     return NextResponse.json({ status: "SUCCEEDED", configured: false });
   }
   try {
     const result = await pollAholoJob(kind, id);
+    if (req.nextUrl.searchParams.get("file") === "1") {
+      if (!result.downloadUrl) {
+        return NextResponse.json({ error: "模型还没就绪" }, { status: 404 });
+      }
+      const fileRes = await fetch(result.downloadUrl);
+      if (!fileRes.ok) {
+        return NextResponse.json({ error: "拉取生成结果失败" }, { status: 502 });
+      }
+      const ext = result.format || "ply";
+      return new NextResponse(fileRes.body, {
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="aholo-world.${ext}"`,
+        },
+      });
+    }
     return NextResponse.json({ configured: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "查询失败";
