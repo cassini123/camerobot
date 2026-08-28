@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { AssetKind, AssetSource } from "@/lib/library-types";
+import { virtupathHrefForAsset, type AssetKind, type AssetSource } from "@/lib/library-types";
 import { AssetThumb } from "./AssetThumb";
 import { ExploreMasonry } from "./ExploreMasonry";
 import { useLibrary } from "./LibraryProvider";
@@ -124,29 +124,56 @@ export function LibraryPage() {
                   : "还没有生成结果。VirtuPath 或 WORLD 生成的模型会进这一栏。"}
               </p>
             ) : (
-              mine.map((item) => (
-                <article
-                  key={item.id}
-                  className={picked === item.id ? "lib-card gemini-glow" : "lib-card"}
-                  onClick={() => setPicked(item.id)}
-                >
-                  {item.kind === "video" && item.previewUrl ? (
-                    <video src={item.previewUrl} muted />
-                  ) : (
-                    <AssetThumb asset={item} />
-                  )}
-                  <b>{item.name}</b>
-                  <small>
-                    {item.kind} · {item.source} · {item.sizeLabel}
-                  </small>
-                  {item.prompt ? <p>{item.prompt}</p> : null}
-                  {item.remoteUrl ? (
-                    <a href={item.remoteUrl} target="_blank" rel="noreferrer">
-                      下载模型
-                    </a>
-                  ) : null}
-                </article>
-              ))
+              mine.map((item) => {
+                const virtupath = virtupathHrefForAsset(item);
+                return (
+                  <article
+                    key={item.id}
+                    className={picked === item.id ? "lib-card gemini-glow" : "lib-card"}
+                    onClick={() => setPicked(item.id)}
+                  >
+                    {virtupath ? (
+                      <Link
+                        href={virtupath}
+                        className="lib-thumb"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {item.kind === "video" && item.previewUrl ? (
+                          <video src={item.previewUrl} muted />
+                        ) : (
+                          <AssetThumb asset={item} />
+                        )}
+                      </Link>
+                    ) : item.kind === "video" && item.previewUrl ? (
+                      <video src={item.previewUrl} muted />
+                    ) : (
+                      <AssetThumb asset={item} />
+                    )}
+                    <b>{item.name}</b>
+                    <small>
+                      {item.kind} · {item.source} · {item.sizeLabel}
+                    </small>
+                    {item.prompt ? <p>{item.prompt}</p> : null}
+                    <div className="lib-actions" onClick={(event) => event.stopPropagation()}>
+                      {virtupath ? (
+                        <Link className="btn primary" href={virtupath}>
+                          在 VirtuPath 使用
+                        </Link>
+                      ) : null}
+                      {item.remoteUrl ? (
+                        <a href={item.remoteUrl} target="_blank" rel="noreferrer">
+                          {item.kind === "scene" ? "下载 SPZ" : "下载"}
+                        </a>
+                      ) : null}
+                      {item.plyUrl ? (
+                        <a href={item.plyUrl} target="_blank" rel="noreferrer">
+                          下载 PLY
+                        </a>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })
             )}
           </div>
         </>

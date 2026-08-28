@@ -8,6 +8,7 @@ import type { CameraPath, Shot, SpaceModel, SpaceObject, Vec3 } from "@/lib/type
 import type { SceneSplat } from "@/lib/scene-visual";
 import { pathPoints, samplePath } from "@/lib/path-engine";
 import { filmDuration, seekTFromClientX, shotDuration } from "@/lib/film-timeline";
+import { heroView } from "@/lib/view-frame";
 import { SplatCloud } from "./SplatCloud";
 import { isTypingTarget, leftPaneNdc, VIEW_SPLIT } from "@/lib/view-pane";
 
@@ -266,6 +267,26 @@ function CameraGizmo({
   );
 }
 
+function ResetHero({
+  position,
+  target,
+  viewKey,
+}: {
+  position: Vec3;
+  target: Vec3;
+  viewKey: string;
+}) {
+  const { camera } = useThree();
+  useLayoutEffect(() => {
+    camera.position.set(position[0], position[1], position[2]);
+    camera.lookAt(target[0], target[1], target[2]);
+    camera.updateProjectionMatrix();
+    // Reset only when the selected model changes, not on every bounds object identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camera, viewKey]);
+  return null;
+}
+
 function DualViewport({
   dual,
   previewing,
@@ -451,6 +472,7 @@ function DualViewport({
 
 export function SpaceViewer({
   space,
+  viewKey,
   shots,
   currentShotId,
   previewing,
@@ -470,6 +492,7 @@ export function SpaceViewer({
   onEnsureShots,
 }: {
   space: SpaceModel;
+  viewKey?: string;
   shots: Shot[];
   currentShotId: string | null;
   previewing: boolean;
@@ -489,6 +512,7 @@ export function SpaceViewer({
   onEnsureShots: () => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
+  const hero = heroView(space);
   const camPos: Vec3 = current
     ? samplePath(current.path, previewT)
     : ([0, 2, 8] as Vec3);
@@ -497,7 +521,7 @@ export function SpaceViewer({
   const [full, setFull] = useState(false);
   const [orbitLock, setOrbitLock] = useState(false);
   const picked = space.objects.find((obj) => obj.id === selectedId);
-  const lookAt: Vec3 = space.kind === "upload" ? [0, 1.2, 0] : [0, 1.2, 6];
+  const lookAt: Vec3 = hero.target;
   const target = current?.path.target ?? lookAt;
   const lookClass =
     current?.look === "black_soft"
@@ -593,13 +617,14 @@ export function SpaceViewer({
       <div className={dual ? "viewer-split single-gl" : undefined} style={{ height: "100%" }}>
         <Canvas
           shadows
-          camera={{ position: [14, 9, -12], fov: 42 }}
+          camera={{ position: hero.position, fov: hero.fov }}
           gl={{ antialias: !splat, preserveDrawingBuffer: true }}
           onPointerMissed={() => onSelectObject(null)}
         >
           <color attach="background" args={["#07080a"]} />
           <ambientLight intensity={0.55} />
           <directionalLight position={[8, 14, 4]} intensity={1.15} castShadow />
+          <ResetHero position={hero.position} target={hero.target} viewKey={viewKey ?? space.space_id} />
           <HeritageHall
             space={space}
             selectedId={selectedId}
@@ -645,7 +670,7 @@ export function SpaceViewer({
             camPos={camPos}
             lookTarget={target}
             lookAt={lookAt}
-            orbitFov={42}
+            orbitFov={previewing || filmPlaying ? shotFov(current) : hero.fov}
             povFov={shotFov(current)}
             dutch={current?.camera.angle === "dutch"}
             handheld={Boolean(current?.handheld)}

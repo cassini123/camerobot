@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatBytes } from "@/lib/ply-stream";
+import { mergeLibraryAssets } from "@/lib/generated-worlds";
 import {
   inferAssetKind,
   type AssetKind,
@@ -116,8 +117,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const abortRef = useRef(new Map<string, AbortController>());
 
   useEffect(() => {
-    const meta = loadMeta();
     void (async () => {
+      const meta = mergeLibraryAssets(loadMeta());
       const restored = await Promise.all(
         meta.map(async (item) => {
           const preview = await getBlob(`preview-${item.id}`);

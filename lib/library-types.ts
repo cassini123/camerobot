@@ -13,7 +13,22 @@ export type LibraryAsset = {
   prompt?: string;
   remoteUrl?: string;
   previewUrl?: string;
+  plyUrl?: string;
+  spzUrl?: string;
 };
+
+export const VIRTUPATH_SCENE_PARAM = "scene";
+
+/** Library scene/object (or its pano card) opens this VirtuPath URL. */
+export function virtupathHrefForAsset(asset: Pick<LibraryAsset, "id" | "kind">): string | null {
+  if (asset.kind === "scene" || asset.kind === "object") {
+    return `/yunjing/virtupath?${VIRTUPATH_SCENE_PARAM}=${encodeURIComponent(asset.id)}`;
+  }
+  if (asset.id.endsWith("-pano")) {
+    return `/yunjing/virtupath?${VIRTUPATH_SCENE_PARAM}=${encodeURIComponent(asset.id.slice(0, -5))}`;
+  }
+  return null;
+}
 
 export function inferAssetKind(file: File, hint?: AssetKind): AssetKind {
   if (hint) {

@@ -738,6 +738,18 @@ textarea {
   color: inherit;
   text-align: left;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-lib-thumb {
+  width: 44px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: #111;
 }
 
 .model-lib-name b {
@@ -1912,6 +1924,23 @@ input[type="range"]::-moz-range-thumb {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 11px;
+}
+
+.lib-thumb {
+  display: block;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.lib-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lib-actions a {
+  font-size: 12px;
 }
 
 .lib-empty {
