@@ -46,14 +46,14 @@ export function LibraryPage() {
       <div className="lib-toolbar">
         <button
           type="button"
-          className={section === "explore" ? "btn primary gemini-glow" : "btn"}
+          className={section === "explore" ? "btn gemini-glow" : "btn"}
           onClick={() => setSection("explore")}
         >
           Explore
         </button>
         <button
           type="button"
-          className={section === "mine" ? "btn primary gemini-glow" : "btn"}
+          className={section === "mine" ? "btn gemini-glow" : "btn"}
           onClick={() => setSection("mine")}
         >
           My Library
@@ -91,14 +91,14 @@ export function LibraryPage() {
           <div className="lib-toolbar lib-toolbar-sub">
             <button
               type="button"
-              className={mineSource === "upload" ? "btn primary gemini-glow" : "btn"}
+              className={mineSource === "upload" ? "btn gemini-glow" : "btn"}
               onClick={() => setMineSource("upload")}
             >
               上传
             </button>
             <button
               type="button"
-              className={mineSource === "generated" ? "btn primary gemini-glow" : "btn"}
+              className={mineSource === "generated" ? "btn gemini-glow" : "btn"}
               onClick={() => setMineSource("generated")}
             >
               生成
@@ -107,7 +107,7 @@ export function LibraryPage() {
               <button
                 key={item.id}
                 type="button"
-                className={kind === item.id ? "btn primary gemini-glow" : "btn"}
+                className={kind === item.id ? "btn gemini-glow" : "btn"}
                 onClick={() => setKind(item.id)}
               >
                 {item.label}
