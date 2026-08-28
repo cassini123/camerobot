@@ -142,7 +142,7 @@ export function bundledLibraryAssets() {
       name: world.name,
       kind: "scene" as const,
       source: "generated" as const,
-      sizeLabel: "3DGS SPZ",
+      sizeLabel: "3DGS",
       createdAt: 0,
       prompt: world.prompt,
       previewUrl: world.pano,

@@ -158,10 +158,13 @@ function HeritageHall({
     16,
   );
   const [splatFailed, setSplatFailed] = useState(false);
+  const [splatReadyTick, setSplatReadyTick] = useState(0);
   useEffect(() => {
     setSplatFailed(false);
+    setSplatReadyTick(0);
   }, [splat]);
   const showPoints = Boolean(cloud) && (!splat || splatFailed);
+  const showBoxes = !splat || splatFailed || splatReadyTick === 0;
   return (
     <group>
       {uploaded ? null : (
@@ -183,7 +186,7 @@ function HeritageHall({
       {splat ? (
         <SplatCloud
           splat={splat}
-          onReady={() => undefined}
+          onReady={() => setSplatReadyTick((n) => n + 1)}
           onError={() => setSplatFailed(true)}
         />
       ) : null}
@@ -194,20 +197,29 @@ function HeritageHall({
           <meshStandardMaterial color="#101218" />
         </mesh>
       ) : null}
-      {space.objects
-        .filter((obj) => obj.type !== "ground")
-        .map((obj) => (
-          <MovableMesh
-            key={obj.id}
-            obj={obj}
-            dual={dual}
-            selected={obj.id === selectedId}
-            onSelect={onSelect}
-            onMove={onMove}
-            onPick={onPick}
-            onDragState={onDragState}
-          />
-        ))}
+      {showBoxes
+        ? space.objects
+            .filter((obj) => obj.type !== "ground")
+            .map((obj) => (
+              <MovableMesh
+                key={obj.id}
+                obj={obj}
+                dual={dual}
+                selected={obj.id === selectedId}
+                onSelect={onSelect}
+                onMove={onMove}
+                onPick={onPick}
+                onDragState={onDragState}
+              />
+            ))
+        : null}
+      {splatReadyTick > 0 ? (
+        <ResetHero
+          position={heroView(space).position}
+          target={heroView(space).target}
+          viewKey={`${space.space_id}-splat-${splatReadyTick}`}
+        />
+      ) : null}
     </group>
   );
 }
@@ -423,6 +435,8 @@ function DualViewport({
     }
 
     cam.fov = orbitFov;
+    cam.near = 0.05;
+    cam.far = 8000;
     cam.aspect = split / h;
     cam.layers.enable(0);
     cam.layers.enable(GIZMO_LAYER);
@@ -617,7 +631,7 @@ export function SpaceViewer({
       <div className={dual ? "viewer-split single-gl" : undefined} style={{ height: "100%" }}>
         <Canvas
           shadows
-          camera={{ position: hero.position, fov: hero.fov }}
+          camera={{ position: hero.position, fov: hero.fov, near: 0.05, far: 8000 }}
           gl={{ antialias: !splat, preserveDrawingBuffer: true }}
           onPointerMissed={() => onSelectObject(null)}
         >

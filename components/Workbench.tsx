@@ -24,6 +24,7 @@ import {
   SCENE_MODEL_FORMATS,
 } from "@/lib/space-objects";
 import { GENERATED_WORLDS } from "@/lib/generated-worlds";
+import { modelUrlExtension, remoteSparkScene } from "@/lib/load-scene-model";
 import { heroView } from "@/lib/view-frame";
 import { formatBytes } from "@/lib/ply-stream";
 import { IDENTITY_FIT } from "@/lib/point-cluster";
@@ -265,7 +266,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     ...GENERATED_WORLDS.map((world) => ({
       id: world.id,
       name: world.name,
-      sizeLabel: "3DGS SPZ",
+      sizeLabel: "3DGS",
       source: "generated" as const,
       ready: false,
       previewUrl: world.pano,
@@ -597,32 +598,33 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }
 
   async function loadRemoteModel(item: LibraryItem) {
-    const url = item.spzUrl || item.remoteUrl;
+    const url = item.spzUrl || item.plyUrl || item.remoteUrl;
     if (!url) {
       setToast({ kind: "err", text: "这个场景没有可载入的模型地址" });
       return;
     }
+    const ext = modelUrlExtension(url);
+    const { space, visual } = remoteSparkScene({
+      url,
+      fileName: `${item.id}.${ext}`,
+      format: ext,
+      label: `${item.name} · 3DGS`,
+    });
+    const nextSplat = visual.splat ?? null;
     dispatch({ type: "busy", busy: `载入 ${item.name}…` });
-    setToast({ kind: "ok", text: `正在拉取 ${item.name} 的 3DGS…` });
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`无法下载场景（${res.status}）`);
-      }
-      const blob = await res.blob();
-      const extMatch = url.toLowerCase().match(/\.(ply|spz|splat|ksplat|glb|gltf)(?:$|\?)/);
-      const ext = extMatch?.[1] ?? "spz";
-      const file = new File([blob], `${item.name}.${ext}`, { type: "application/octet-stream" });
-      setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
-      await ingestModel(file, item.id, item.source);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "场景载入失败";
-      setLibrary((cur) =>
-        cur.map((it) => (it.id === item.id ? { ...it, ready: false, error: message } : it)),
-      );
-      dispatch({ type: "busy", busy: null });
-      setToast({ kind: "err", text: message });
-    }
+    setLibrary((cur) =>
+      cur.map((it) =>
+        it.id === item.id ? { ...it, ready: true, space, splat: nextSplat, error: undefined } : it,
+      ),
+    );
+    applyLibrary({
+      ...item,
+      ready: true,
+      space,
+      splat: nextSplat,
+      geometry: null,
+    });
+    dispatch({ type: "busy", busy: null });
   }
 
   function applyLibrary(item: LibraryItem) {
