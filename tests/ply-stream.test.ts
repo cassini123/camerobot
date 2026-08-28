@@ -130,3 +130,28 @@ describe("zip store", () => {
     expect(blob.type).toContain("zip");
   });
 });
+
+describe("splat formats", () => {
+  it("maps plz to a zip filename Spark can infer", async () => {
+    const { sparkHintName, canSparkDecodeGaussianPly, isSparkNativeExt } = await import(
+      "../lib/splat-formats"
+    );
+    expect(sparkHintName("hall.plz")).toBe("hall.zip");
+    expect(isSparkNativeExt("plz")).toBe(true);
+    expect(canSparkDecodeGaussianPly(3_528_201_479)).toBe(false);
+    expect(canSparkDecodeGaussianPly(80 * 1024 * 1024)).toBe(true);
+  });
+
+  it("loads plz as spark-native without sampling the file as PLY", async () => {
+    const { loadUploadedScene } = await import("../lib/load-scene-model");
+    const zipMagic = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 1, 2, 3]);
+    const file = new File([zipMagic], "hall.plz");
+    const { space, visual } = await loadUploadedScene(file);
+    expect(space.format).toBe("plz");
+    expect(visual?.mode).toBe("spark");
+    expect(visual?.splat?.quality).toBe("full");
+    expect(visual?.splat?.fileName).toBe("hall.zip");
+    expect(visual?.splat?.file).toBe(file);
+    expect(visual?.splat?.paged).toBe(false);
+  });
+});

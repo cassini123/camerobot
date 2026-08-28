@@ -20,6 +20,8 @@ npm run dev
 
 Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_API_KEY`（可选）。密钥不要提交进仓库。
 
+网页上的 3DGS **不要用数 GB 的高斯 PLY**（浏览器解不出原画质，看起来永远像抽样点云）。请导出 **PLZ / SPZ / SOG**（通常几十到几百 MB），在 VirtuPath 上传或贴 CDN 链接。示例扫描把压缩包放到 `example/model.plz`，或设置 `EXAMPLE_SPLAT_URL`。做成桌面 App 也绕不开显存，压缩才是正路。
+
 ### Demo 十步
 
 1. 进入 YUNJING，左侧已有剧本《博克图》。

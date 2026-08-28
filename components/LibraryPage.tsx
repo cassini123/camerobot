@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { EXPLORE_FEED } from "@/lib/library-explore";
 import type { AssetKind, AssetSource } from "@/lib/library-types";
+import { SCENE_MODEL_ACCEPT } from "@/lib/space-objects";
 import { useLibrary } from "./LibraryProvider";
 
 const KINDS: { id: "all" | AssetKind; label: string }[] = [
@@ -119,7 +120,7 @@ export function LibraryPage() {
                 <input
                   type="file"
                   hidden
-                  accept="image/*,video/*,.ply,.spz,.splat,.glb,.gltf"
+                  accept={`image/*,video/*,${SCENE_MODEL_ACCEPT}`}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     e.target.value = "";
