@@ -6,14 +6,14 @@ import {
   colorsFromHeight,
   draftsToObjects,
   fitPositions,
+  IDENTITY_FIT,
+  likelyZUp,
+  rotateZUpToYUp,
+  type FitTransform,
 } from "./point-cluster";
-import { formatBytes, samplePlyFile } from "./ply-stream";
+import { formatBytes, isGaussianPly, readPlyHeader, samplePlyFile } from "./ply-stream";
+import { SPARK_MAX_BYTES, type SceneVisual } from "./scene-visual";
 import type { SpaceModel } from "./types";
-
-export type SceneVisual = {
-  mode: "points";
-  geometry: THREE.BufferGeometry;
-} | null;
 
 function extOf(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -22,14 +22,14 @@ function extOf(name: string): string {
 function geometryFromArrays(
   positions: Float32Array,
   colors: Float32Array,
-): THREE.BufferGeometry {
-  fitPositions(positions);
+): { geometry: THREE.BufferGeometry; fit: FitTransform } {
+  const fit = fitPositions(positions);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
-  return geometry;
+  return { geometry, fit };
 }
 
 function spaceFromGeometry(
@@ -66,6 +66,31 @@ function spaceFromGeometry(
         ],
       },
     ],
+  };
+}
+
+function placeholderSpace(fileName: string, format: string, note: string): SpaceModel {
+  return {
+    space_id: "space_upload",
+    model: fileName,
+    kind: "upload",
+    format,
+    fileName,
+    description: note,
+    bounds: { min: [-8, 0, -8], max: [8, 8, 8] },
+    objects: [
+      {
+        id: "scene_01",
+        type: "object",
+        position: [0, 2, 0],
+        size: [16, 4, 16],
+        color: "#6b5c7a",
+        colorName: "紫",
+        label: "场景",
+        aliases: ["场景", "scene"],
+      },
+    ],
+    zones: [],
   };
 }
 
@@ -113,7 +138,7 @@ async function loadGltf(file: File): Promise<{ space: SpaceModel; visual: SceneV
   if (!positions.length) {
     throw new Error("GLB 里没有可解析的网格");
   }
-  const geometry = geometryFromArrays(new Float32Array(positions), new Float32Array(colors));
+  const { geometry } = geometryFromArrays(new Float32Array(positions), new Float32Array(colors));
   const drafts = clusterPointCloud(
     geometry.getAttribute("position").array as Float32Array,
     geometry.getAttribute("color").array as Float32Array,
@@ -135,6 +160,22 @@ async function loadGltf(file: File): Promise<{ space: SpaceModel; visual: SceneV
   };
 }
 
+async function sparkVisual(
+  file: File,
+  fileName: string,
+  zUp: boolean,
+  fit: FitTransform,
+  geometry: THREE.BufferGeometry | null,
+  autoFit = false,
+): Promise<SceneVisual> {
+  const fileBytes = await file.arrayBuffer();
+  return {
+    mode: "spark",
+    geometry,
+    splat: { fileBytes, fileName, zUp, fit, autoFit },
+  };
+}
+
 export async function loadUploadedScene(
   file: File,
   onProgress?: (ratio: number, label: string) => void,
@@ -142,30 +183,71 @@ export async function loadUploadedScene(
   const ext = extOf(file.name);
   onProgress?.(0.01, `读取 ${file.name}（${formatBytes(file.size)}）`);
   if (ext === "spz") {
-    throw new Error("SPZ 需先转为 PLY 或 SPLAT 后再上传");
+    if (file.size > SPARK_MAX_BYTES) {
+      throw new Error("SPZ 超过 400MB，请导出为较小的 SPZ 或 PLY");
+    }
+    onProgress?.(0.4, "载入 3DGS SPZ…");
+    const visual = await sparkVisual(file, file.name, true, IDENTITY_FIT, null, true);
+    return {
+      space: placeholderSpace(file.name, "spz", `${file.name} · 3DGS SPZ`),
+      visual,
+    };
   }
   if (ext === "glb" || ext === "gltf") {
-    if (file.size > 400 * 1024 * 1024) {
+    if (file.size > SPARK_MAX_BYTES) {
       throw new Error("GLB/GLTF 超过 400MB，请导出为 binary PLY 后再上传");
     }
     return loadGltf(file);
   }
-  if (ext === "splat" || ext === "ksplat") {
-    if (ext === "ksplat") {
-      throw new Error("KSPLAT 请导出为 PLY 或 SPLAT");
+  if (ext === "ksplat") {
+    if (file.size > SPARK_MAX_BYTES) {
+      throw new Error("KSPLAT 过大，请导出为 PLY 或 SPZ");
     }
-    if (file.size > 400 * 1024 * 1024) {
+    onProgress?.(0.4, "载入 3DGS KSPLAT…");
+    const visual = await sparkVisual(file, file.name, false, IDENTITY_FIT, null, true);
+    return {
+      space: placeholderSpace(file.name, "ksplat", `${file.name} · 3DGS KSPLAT`),
+      visual,
+    };
+  }
+  if (ext === "splat") {
+    if (file.size > SPARK_MAX_BYTES) {
       throw new Error("SPLAT 过大，请导出采样后的 PLY");
     }
-    const { positions, colors } = parseSplat(await file.arrayBuffer());
-    const geometry = geometryFromArrays(positions, colors);
-    return { space: spaceFromGeometry(file.name, ext, geometry), visual: { mode: "points", geometry } };
+    const bytes = await file.arrayBuffer();
+    const { positions, colors } = parseSplat(bytes);
+    const zUp = likelyZUp(positions);
+    if (zUp) {
+      rotateZUpToYUp(positions);
+    }
+    const { geometry, fit } = geometryFromArrays(positions, colors);
+    return {
+      space: spaceFromGeometry(file.name, ext, geometry),
+      visual: {
+        mode: "spark",
+        geometry,
+        splat: { fileBytes: bytes, fileName: file.name, zUp, fit },
+      },
+    };
   }
+  const header = await readPlyHeader(file);
+  const gaussian = isGaussianPly(header.properties);
   const sampled = await samplePlyFile(file, onProgress);
-  onProgress?.(0.92, "构建预览点云…");
-  const colors = sampled.colors.some(Boolean) ? sampled.colors : colorsFromHeight(sampled.positions);
-  const geometry = geometryFromArrays(sampled.positions, colors);
+  onProgress?.(0.92, gaussian ? "构建 3DGS 预览…" : "构建预览点云…");
+  const zUp = gaussian && likelyZUp(sampled.positions);
+  if (zUp) {
+    rotateZUpToYUp(sampled.positions);
+  }
+  const colors = sampled.colors.some(Boolean)
+    ? sampled.colors
+    : colorsFromHeight(sampled.positions);
+  const { geometry, fit } = geometryFromArrays(sampled.positions, colors);
   const space = spaceFromGeometry(file.name, ext || "ply", geometry);
   space.description = `${file.name} · ${formatBytes(file.size)} · 从 ${sampled.total} 点采样 ${sampled.kept} 点`;
+  if (gaussian && file.size <= SPARK_MAX_BYTES) {
+    const visual = await sparkVisual(file, file.name, zUp, fit, geometry);
+    space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS splat`;
+    return { space, visual };
+  }
   return { space, visual: { mode: "points", geometry } };
 }

@@ -22,6 +22,7 @@ import {
 import { formatBytes } from "@/lib/ply-stream";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
+import type { SceneSplat } from "@/lib/scene-visual";
 import type {
   DirectorChange,
   DirectorResponse,
@@ -67,6 +68,7 @@ type LibraryItem = {
   file?: File;
   space?: SpaceModel;
   geometry?: BufferGeometry | null;
+  splat?: SceneSplat | null;
   ready: boolean;
   error?: string;
 };
@@ -223,6 +225,7 @@ export function Workbench() {
   const [selectedId, setSelectedId] = useState<string | null>("person_01");
   const [modelOpen, setModelOpen] = useState(false);
   const [cloud, setCloud] = useState<BufferGeometry | null>(null);
+  const [splat, setSplat] = useState<SceneSplat | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [library, setLibrary] = useState<LibraryItem[]>([
     {
@@ -336,10 +339,11 @@ export function Workbench() {
         // keep heuristic labels
       }
       const geometry = visual?.geometry ?? null;
+      const nextSplat = visual?.splat ?? null;
       setLibrary((cur) =>
         cur.map((item) =>
           item.id === id
-            ? { ...item, ready: true, space: labeled, geometry, error: undefined }
+            ? { ...item, ready: true, space: labeled, geometry, splat: nextSplat, error: undefined }
             : item,
         ),
       );
@@ -352,13 +356,18 @@ export function Workbench() {
         ready: true,
         space: labeled,
         geometry,
+        splat: nextSplat,
       });
       setToast({
         kind: "ok",
         text:
           existingId === "example-ply"
-            ? "已载入 Example · model.ply（Drive 扫描的抽样预览）。"
-            : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
+            ? nextSplat
+              ? "已载入 Example · model.ply（3DGS splat）。"
+              : "已载入 Example · model.ply（Drive 扫描的抽样预览）。"
+            : nextSplat
+              ? `上传成功：${file.name}。已用 3DGS 渲染并加入左侧模型栏。`
+              : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "模型解析失败";
@@ -414,6 +423,7 @@ export function Workbench() {
       return;
     }
     setCloud(item.geometry ?? null);
+    setSplat(item.splat ?? null);
     dispatch({ type: "space", space: item.space });
     dispatch({ type: "model", name: item.name, space: item.space });
     setSelectedId(item.space.objects.find((obj) => obj.type !== "ground")?.id ?? null);
@@ -424,6 +434,7 @@ export function Workbench() {
 
   function restoreExample() {
     setCloud(null);
+    setSplat(null);
     dispatch({ type: "space", space: defaultSpace });
     dispatch({ type: "model", name: null, space: defaultSpace });
     setSelectedId("person_01");
@@ -809,6 +820,7 @@ export function Workbench() {
           dual={dual}
           selectedId={selectedId}
           cloud={cloud}
+          splat={splat}
           onSelectObject={setSelectedId}
           onMoveObject={(id, position, done) =>
             dispatch({

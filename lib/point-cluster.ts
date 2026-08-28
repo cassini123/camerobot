@@ -24,11 +24,24 @@ export function downsampleStride(count: number, cap = 60000): number {
   return count <= cap ? 1 : Math.ceil(count / cap);
 }
 
-export function fitPositions(positions: Float32Array, targetSpan = 16): void {
+export type FitTransform = {
+  cx: number;
+  minY: number;
+  cz: number;
+  scale: number;
+};
+
+export const IDENTITY_FIT: FitTransform = { cx: 0, minY: 0, cz: 0, scale: 1 };
+
+export function extentsOf(positions: Float32Array): {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+} {
   const count = Math.floor(positions.length / 3);
-  if (!count) {
-    return;
-  }
   let minX = Infinity;
   let minY = Infinity;
   let minZ = Infinity;
@@ -46,15 +59,60 @@ export function fitPositions(positions: Float32Array, targetSpan = 16): void {
     maxY = Math.max(maxY, y);
     maxZ = Math.max(maxZ, z);
   }
+  return { minX, minY, minZ, maxX, maxY, maxZ };
+}
+
+/** Interior / COLMAP 重建常见 Z-up：高度轴比 Y 更长。 */
+export function likelyZUp(positions: Float32Array): boolean {
+  const { minY, minZ, maxY, maxZ } = extentsOf(positions);
+  const ySpan = Math.max(0.001, maxY - minY);
+  const zSpan = Math.max(0.001, maxZ - minZ);
+  return zSpan > ySpan * 1.25;
+}
+
+/** (x, y, z) Z-up → (x, z, -y) Y-up，与 Spark `rotation.x = -π/2` 一致。 */
+export function rotateZUpToYUp(positions: Float32Array): void {
+  const count = Math.floor(positions.length / 3);
+  for (let i = 0; i < count; i++) {
+    const y = positions[i * 3 + 1];
+    const z = positions[i * 3 + 2];
+    positions[i * 3 + 1] = z;
+    positions[i * 3 + 2] = -y;
+  }
+}
+
+export function computeFitTransform(
+  positions: Float32Array,
+  targetSpan = 16,
+): FitTransform {
+  const count = Math.floor(positions.length / 3);
+  if (!count) {
+    return IDENTITY_FIT;
+  }
+  const { minX, minY, minZ, maxX, maxY, maxZ } = extentsOf(positions);
   const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.001);
-  const scale = targetSpan / span;
-  const cx = (minX + maxX) / 2;
-  const cz = (minZ + maxZ) / 2;
+  return {
+    cx: (minX + maxX) / 2,
+    minY,
+    cz: (minZ + maxZ) / 2,
+    scale: targetSpan / span,
+  };
+}
+
+export function applyFitTransform(positions: Float32Array, fit: FitTransform): void {
+  const { cx, minY, cz, scale } = fit;
+  const count = Math.floor(positions.length / 3);
   for (let i = 0; i < count; i++) {
     positions[i * 3] = (positions[i * 3] - cx) * scale;
     positions[i * 3 + 1] = (positions[i * 3 + 1] - minY) * scale;
     positions[i * 3 + 2] = (positions[i * 3 + 2] - cz) * scale;
   }
+}
+
+export function fitPositions(positions: Float32Array, targetSpan = 16): FitTransform {
+  const fit = computeFitTransform(positions, targetSpan);
+  applyFitTransform(positions, fit);
+  return fit;
 }
 
 export function colorsFromHeight(positions: Float32Array): Float32Array {

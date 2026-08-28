@@ -12,6 +12,7 @@
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "@sparkjsdev/spark": "^2.1.0",
     "@types/three": "^0.185.4",
     "exceljs": "^4.4.0",
     "jspdf": "^4.2.1",

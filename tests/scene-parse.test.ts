@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clusterPointCloud, fitPositions, guessType } from "../lib/point-cluster";
+import { clusterPointCloud, fitPositions, guessType, likelyZUp, rotateZUpToYUp } from "../lib/point-cluster";
 import { nameColor } from "../lib/color-name";
 import { exampleSpace } from "../lib/space-objects";
 import { resolveSpaceObject } from "../lib/space-objects";
@@ -27,6 +27,14 @@ describe("point clustering", () => {
     const positions = new Float32Array([10, 20, 30, 12, 24, 32]);
     fitPositions(positions, 16);
     expect(Math.min(positions[1], positions[4])).toBeCloseTo(0, 5);
+  });
+
+  it("treats taller Z as Z-up and rotates to Y-up", () => {
+    const positions = new Float32Array([0, 0, 0, 1, 0.2, 4]);
+    expect(likelyZUp(positions)).toBe(true);
+    rotateZUpToYUp(positions);
+    expect(positions[4]).toBeCloseTo(4);
+    expect(positions[5]).toBeCloseTo(-0.2);
   });
 
   it("guesses a tall thin volume as a person", () => {

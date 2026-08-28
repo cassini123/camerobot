@@ -5,7 +5,9 @@ import { Line, OrbitControls } from "@react-three/drei";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { CameraPath, Shot, SpaceModel, SpaceObject, Vec3 } from "@/lib/types";
+import type { SceneSplat } from "@/lib/scene-visual";
 import { pathPoints, samplePath } from "@/lib/path-engine";
+import { SplatCloud } from "./SplatCloud";
 
 const TYPE_COLOR: Record<string, string> = {
   building: "#8a6a45",
@@ -125,6 +127,7 @@ function HeritageHall({
   onMove,
   onPick,
   cloud,
+  splat,
   onDragState,
 }: {
   space: SpaceModel;
@@ -133,6 +136,7 @@ function HeritageHall({
   onMove: (id: string, position: Vec3, done?: boolean) => void;
   onPick: () => void;
   cloud: THREE.BufferGeometry | null;
+  splat: SceneSplat | null;
   onDragState: (dragging: boolean) => void;
 }) {
   const uploaded = space.kind === "upload";
@@ -159,7 +163,7 @@ function HeritageHall({
           </mesh>
         </>
       )}
-      {cloud ? <PointCloud geometry={cloud} /> : null}
+      {splat ? <SplatCloud splat={splat} /> : cloud ? <PointCloud geometry={cloud} /> : null}
       {uploaded ? (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
           <planeGeometry args={[span + 8, span + 8]} />
@@ -248,6 +252,7 @@ export function SpaceViewer({
   onSelectObject,
   onMoveObject,
   cloud,
+  splat,
 }: {
   space: SpaceModel;
   shots: Shot[];
@@ -259,6 +264,7 @@ export function SpaceViewer({
   onSelectObject: (id: string | null) => void;
   onMoveObject: (id: string, position: Vec3, done?: boolean) => void;
   cloud: THREE.BufferGeometry | null;
+  splat: SceneSplat | null;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const camPos = current
@@ -352,7 +358,7 @@ export function SpaceViewer({
       </span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
       <div className={dual ? "viewer-split" : undefined} style={{ height: "100%" }}>
-        <Canvas shadows camera={{ position: [14, 9, -12], fov: 42 }}>
+        <Canvas shadows camera={{ position: [14, 9, -12], fov: 42 }} gl={{ antialias: !splat }}>
           <color attach="background" args={["#07080a"]} />
           <ambientLight intensity={0.55} />
           <directionalLight position={[8, 14, 4]} intensity={1.15} castShadow />
@@ -366,6 +372,7 @@ export function SpaceViewer({
             }}
             onDragState={setOrbitLock}
             cloud={cloud}
+            splat={splat}
           />
           {shots.map((shot) => (
             <PathLine
@@ -403,6 +410,7 @@ export function SpaceViewer({
         </Canvas>
         {dual && current ? (
           <Canvas
+            gl={{ antialias: !splat }}
             camera={{
               position: camPos,
               fov: Math.max(18, 70 - current.camera.lens * 0.4),
@@ -421,6 +429,7 @@ export function SpaceViewer({
               }}
               onDragState={setOrbitLock}
               cloud={cloud}
+              splat={splat}
             />
             <PovRig
               position={camPos}

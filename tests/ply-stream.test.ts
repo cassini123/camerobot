@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { colorFromChannels, parsePlyHeaderText, sampleStride, samplePlyFile, SH_C0 } from "../lib/ply-stream";
+import {
+  colorFromChannels,
+  isGaussianPly,
+  parsePlyHeaderText,
+  samplePlyFile,
+  sampleStride,
+  SH_C0,
+} from "../lib/ply-stream";
 import { zipStore } from "../lib/zip-store";
 
 describe("ply streaming", () => {
@@ -67,6 +74,42 @@ describe("ply streaming", () => {
     expect(rgb?.[0]).toBeCloseTo(0.5 + SH_C0 * 1.7724539, 5);
     expect(rgb?.[1]).toBeCloseTo(0.5, 5);
     expect(rgb?.[2]).toBeCloseTo(0, 5);
+  });
+
+  it("detects 3DGS gaussian ply headers", () => {
+    const header = parsePlyHeaderText(
+      [
+        "ply",
+        "format binary_little_endian 1.0",
+        "element vertex 10",
+        "property float x",
+        "property float y",
+        "property float z",
+        "property float f_dc_0",
+        "property float opacity",
+        "property float scale_0",
+        "end_header",
+      ].join("\n"),
+    );
+    expect(isGaussianPly(header.properties)).toBe(true);
+  });
+
+  it("does not treat RGB point clouds as gaussian", () => {
+    const header = parsePlyHeaderText(
+      [
+        "ply",
+        "format binary_little_endian 1.0",
+        "element vertex 10",
+        "property float x",
+        "property float y",
+        "property float z",
+        "property uchar red",
+        "property uchar green",
+        "property uchar blue",
+        "end_header",
+      ].join("\n"),
+    );
+    expect(isGaussianPly(header.properties)).toBe(false);
   });
 });
 
