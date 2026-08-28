@@ -10,6 +10,7 @@ export function ToolDock({
   currentShot,
   selectedLabel,
   previewing,
+  onClose,
   onFollow,
   onOrbit,
   onDolly,
@@ -26,6 +27,7 @@ export function ToolDock({
   currentShot?: Shot;
   selectedLabel: string;
   previewing: boolean;
+  onClose: (id: ToolId) => void;
   onFollow: () => void;
   onOrbit: () => void;
   onDolly: (dir: "in" | "out") => void;
@@ -50,7 +52,14 @@ export function ToolDock({
         }
         return (
           <DraggablePanel key={id}>
-          <section className="tool-card">
+          <section className="tool-card sky-glass">
+            <button
+              className="tool-close"
+              aria-label="关闭"
+              onClick={() => onClose(id)}
+            >
+              ×
+            </button>
             <div className="tool-card-h">
               <span className="tool-icon" aria-hidden>
                 {tool.icon}

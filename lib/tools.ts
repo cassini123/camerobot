@@ -95,8 +95,8 @@ export const STUDIO_TOOLS: StudioTool[] = [
     id: "reference",
     icon: "▣",
     label: "参考",
-    keywords: ["参考", "visual dna", "构图", "参考图"],
-    hint: "分析参考图 Visual DNA",
+    keywords: ["参考", "visual dna", "shot pattern", "构图", "参考图"],
+    hint: "分析参考图 shot pattern",
   },
   {
     id: "language",

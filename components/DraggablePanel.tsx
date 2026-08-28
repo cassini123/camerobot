@@ -2,7 +2,8 @@
 
 import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 
-const IGNORE = "button, input, textarea, select, a, label, .quick, .prompt";
+const IGNORE =
+  "button, input, textarea, select, a, label, .quick, .prompt, .tool-close, .panel-x, .scene-plus";
 
 export function DraggablePanel({
   className,

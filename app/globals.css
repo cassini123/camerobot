@@ -168,6 +168,81 @@ textarea {
   overflow: hidden;
 }
 
+.story-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.scene-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sid {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--gold-2);
+}
+
+.scene-plus {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.scene-plus:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.scene-title,
+.scene-copy {
+  width: 100%;
+  margin-top: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  resize: none;
+}
+
+.scene-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.scene-copy {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.scene-assets {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
+.scene-assets img,
+.scene-assets video {
+  width: 52px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
 .col:last-child {
   border-right: none;
   border-left: 1px solid var(--line);
@@ -237,7 +312,7 @@ textarea {
 
 .viewer-label {
   position: absolute;
-  top: 76px;
+  top: 12px;
   left: 12px;
   z-index: 2;
   font-size: 11px;
@@ -250,46 +325,33 @@ textarea {
   right: 12px;
 }
 
-.ref-bar {
+.shot-pattern {
   position: absolute;
   left: 232px;
   top: 12px;
   z-index: 5;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  max-width: calc(100% - 500px);
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(10, 11, 14, 0.72);
-  backdrop-filter: blur(16px);
-}
-
-.ref-row {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-}
-
-.ref-thumb {
-  width: 72px;
-  height: 48px;
-  object-fit: cover;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.ref-thumb.active {
-  border-color: var(--gold);
-}
-
-.dna {
-  display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  align-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 500px);
+  padding: 8px 14px;
+  pointer-events: none;
+}
+
+.shot-pattern span {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.shot-pattern em {
+  font-style: normal;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .chip {
@@ -322,11 +384,17 @@ textarea {
   width: 100%;
   padding: 10px 12px;
   border-radius: 28px;
-  background: var(--composer);
+  background: rgba(255, 255, 255, 0.62);
   color: var(--composer-text);
+  backdrop-filter: blur(22px);
+}
+
+.composer.gemini-glow {
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.28),
-    0 0 0 1px rgba(0, 0, 0, 0.06);
+    0 0 0 1px rgba(255, 255, 255, 0.55),
+    0 0 18px rgba(186, 214, 255, 0.45),
+    0 0 42px rgba(140, 180, 255, 0.22),
+    0 16px 40px rgba(0, 0, 0, 0.28);
 }
 
 .composer-tools {
@@ -403,7 +471,7 @@ textarea {
 .tool-dock {
   position: absolute;
   left: 232px;
-  top: 88px;
+  top: 72px;
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -434,12 +502,133 @@ textarea {
 
 .tool-card {
   pointer-events: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
+  position: relative;
+  padding: 14px 14px 12px;
   border-radius: 16px;
-  background: rgba(16, 17, 20, 0.72);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.tool-close,
+.panel-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 14px;
+  z-index: 2;
+}
+
+.tool-close:hover,
+.panel-x:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.sky-glass {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)),
+    rgba(18, 24, 32, 0.38);
+  backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 24px rgba(180, 210, 255, 0.12),
+    0 12px 28px rgba(0, 0, 0, 0.28);
+  animation: sky-float 7s ease-in-out infinite;
+}
+
+@keyframes sky-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -5px;
+  }
+}
+
+.tone-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.model-dock {
+  position: absolute;
+  left: 232px;
+  bottom: 24px;
+  z-index: 7;
+  width: 196px;
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.model-dock strong {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.model-dock span {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-dock em,
+.model-pick {
+  font-style: normal;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.22);
+  accent-color: #fff;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
 }
 
 .tool-card-h {
@@ -447,6 +636,7 @@ textarea {
   gap: 10px;
   align-items: center;
   margin-bottom: 8px;
+  padding-right: 22px;
 }
 
 .tool-icon {
@@ -531,14 +721,12 @@ textarea {
 }
 
 .changes {
+  position: relative;
   width: 100%;
   max-height: 220px;
   overflow: auto;
-  padding: 12px 14px;
+  padding: 16px 16px 12px;
   border-radius: 18px;
-  background: rgba(12, 13, 16, 0.88);
-  border: 1px solid var(--line);
-  backdrop-filter: blur(16px);
   color: var(--text);
 }
 
@@ -707,10 +895,14 @@ textarea {
   }
 
   .composer-dock,
-  .ref-bar {
+  .shot-pattern {
     left: 50%;
     width: min(680px, calc(100% - 32px));
     max-width: calc(100% - 32px);
     transform: translateX(-50%);
+  }
+
+  .model-dock {
+    left: 12px;
   }
 }

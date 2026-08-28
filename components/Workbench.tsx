@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { DraggablePanel } from "./DraggablePanel";
 import { IntroSplash } from "./IntroSplash";
 import { ToolDock } from "./ToolDock";
@@ -9,10 +9,10 @@ import storyData from "@/data/story_boktu.json";
 import spaceData from "@/data/space_heritage_hall.json";
 import { buildExportPayload } from "@/lib/export";
 import { sampleStillFrames } from "@/lib/still-frames";
-import { EXAMPLE_VISUAL_DNA, heuristicDirector, QUICK_PROMPTS } from "@/lib/fallbacks";
+import { EXAMPLE_VISUAL_DNA, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
-import { matchTools, STUDIO_TOOLS } from "@/lib/tools";
+import { matchTools, type ToolId } from "@/lib/tools";
 import type {
   DirectorChange,
   DirectorResponse,
@@ -28,8 +28,16 @@ const SpaceViewer = dynamic(
   { ssr: false },
 );
 
-const story = storyData as Story;
 const defaultSpace = spaceData as SpaceModel;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 const FAQ = [
   ["推 DOLLY IN", "摄影机沿光轴靠近主体，建立空间后进入人物。"],
@@ -40,8 +48,11 @@ const FAQ = [
   ["环 ORBIT", "绕主体旋转，揭示立面。"],
 ];
 
+type SceneAssets = { images: string[]; videos: string[] };
+
 type State = {
   currentSceneId: string;
+  story: Story;
   space: SpaceModel;
   dna: VisualDNA | null;
   imageDataUrl: string | null;
@@ -50,6 +61,9 @@ type State = {
   instruction: string;
   pending: DirectorResponse | null;
   busy: string | null;
+  sceneAssets: Record<string, SceneAssets>;
+  toneSkill: { name: string; dataUrl: string } | null;
+  modelName: string | null;
 };
 
 type Action =
@@ -62,7 +76,11 @@ type Action =
   | { type: "pending"; pending: DirectorResponse | null }
   | { type: "busy"; busy: string | null }
   | { type: "apply"; shot: Shot }
-  | { type: "moveObject"; id: string; position: [number, number, number]; rebuild?: boolean };
+  | { type: "moveObject"; id: string; position: [number, number, number]; rebuild?: boolean }
+  | { type: "editScene"; id: string; title?: string; description?: string }
+  | { type: "sceneAsset"; id: string; kind: "image" | "video"; dataUrl: string }
+  | { type: "tone"; name: string; dataUrl: string }
+  | { type: "model"; name: string | null };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -116,6 +134,37 @@ function reducer(state: State, action: Action): State {
           : state.shots,
       };
     }
+    case "editScene":
+      return {
+        ...state,
+        story: {
+          ...state.story,
+          scenes: state.story.scenes.map((item) =>
+            item.scene_id === action.id
+              ? {
+                  ...item,
+                  title: action.title ?? item.title,
+                  description: action.description ?? item.description,
+                }
+              : item,
+          ),
+        },
+      };
+    case "sceneAsset": {
+      const current = state.sceneAssets[action.id] ?? { images: [], videos: [] };
+      const next =
+        action.kind === "image"
+          ? { ...current, images: [...current.images, action.dataUrl] }
+          : { ...current, videos: [...current.videos, action.dataUrl] };
+      return {
+        ...state,
+        sceneAssets: { ...state.sceneAssets, [action.id]: next },
+      };
+    }
+    case "tone":
+      return { ...state, toneSkill: { name: action.name, dataUrl: action.dataUrl } };
+    case "model":
+      return { ...state, modelName: action.name };
     default:
       return state;
   }
@@ -124,14 +173,18 @@ function reducer(state: State, action: Action): State {
 export function Workbench() {
   const [state, dispatch] = useReducer(reducer, {
     currentSceneId: "scene_02",
+    story: storyData as Story,
     space: defaultSpace,
     dna: null,
-    imageDataUrl: "/references/heritage-wide.svg",
+    imageDataUrl: null,
     shots: [],
     currentShotId: null,
-    instruction: "让人物走慢一点，镜头从人物侧后方跟拍，最后绕到建筑正面。",
+    instruction: "",
     pending: null,
     busy: null,
+    sceneAssets: {},
+    toneSkill: null,
+    modelName: null,
   });
   const [previewing, setPreviewing] = useState(false);
   const [previewT, setPreviewT] = useState(0);
@@ -139,17 +192,14 @@ export function Workbench() {
   const [dual, setDual] = useState(true);
   const [introDone, setIntroDone] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
+  const [activeToolIds, setActiveToolIds] = useState<ToolId[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>("person_01");
+  const toneInputRef = useRef<HTMLInputElement>(null);
+  const modelInputRef = useRef<HTMLInputElement>(null);
   const finishIntro = useCallback(() => setIntroDone(true), []);
 
-  const scene = story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
+  const scene = state.story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
   const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
-  const matchedIds = useMemo(
-    () => matchTools(state.instruction),
-    [state.instruction],
-  );
-  const toolIds = guideOpen ? STUDIO_TOOLS.map((tool) => tool.id) : matchedIds;
   const selected = state.space.objects.find((obj) => obj.id === selectedId);
 
   function patchCurrentShot(partial: Record<string, unknown>) {
@@ -212,6 +262,11 @@ export function Workbench() {
   }
 
   async function runDirector(instruction: string) {
+    const text = instruction.trim();
+    if (!text) {
+      return;
+    }
+    setActiveToolIds(matchTools(text));
     if (!currentShot) {
       dispatch({ type: "busy", busy: "请先 Generate Shots 并选择镜头" });
       return;
@@ -266,7 +321,7 @@ export function Workbench() {
   function exportJson() {
     const payload = buildExportPayload({
       project: { id: "yun-jing-001", name: "Boktu Heritage" },
-      story,
+      story: state.story,
       space: state.space,
       references: [
         {
@@ -274,7 +329,7 @@ export function Workbench() {
           visual_dna: state.dna || EXAMPLE_VISUAL_DNA,
         },
       ],
-      scenes: story.scenes.map((item) => ({
+      scenes: state.story.scenes.map((item) => ({
         id: item.scene_id,
         story: item,
         shots: item.scene_id === scene.scene_id ? state.shots : [],
@@ -403,16 +458,81 @@ export function Workbench() {
       <div className="stage">
         <aside className="col story-col">
           <div className="col-h">STORY</div>
-          {story.scenes.map((item: Scene) => (
-            <div
-              key={item.scene_id}
-              className={item.scene_id === scene.scene_id ? "scene active" : "scene"}
-              onClick={() => dispatch({ type: "scene", id: item.scene_id })}
-            >
-              {item.scene_id.replace("scene_0", "Scene ")} {item.title}
-              <small>{item.description}</small>
-            </div>
-          ))}
+          <div className="story-list">
+            {state.story.scenes.map((item: Scene) => {
+              const assets = state.sceneAssets[item.scene_id];
+              return (
+                <div
+                  key={item.scene_id}
+                  className={item.scene_id === scene.scene_id ? "scene active" : "scene"}
+                  onClick={() => dispatch({ type: "scene", id: item.scene_id })}
+                >
+                  <div className="scene-head">
+                    <span className="sid">{item.scene_id.replace("scene_0", "Scene ")}</span>
+                    <label
+                      className="scene-plus"
+                      title="本镜参考图 / 参考视频"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      +
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        hidden
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) {
+                            return;
+                          }
+                          const dataUrl = await readFileAsDataUrl(file);
+                          dispatch({
+                            type: "sceneAsset",
+                            id: item.scene_id,
+                            kind: file.type.startsWith("video") ? "video" : "image",
+                            dataUrl,
+                          });
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <input
+                    className="scene-title"
+                    value={item.title}
+                    onClick={(e) => e.stopPropagation()}
+                    onFocus={() => dispatch({ type: "scene", id: item.scene_id })}
+                    onChange={(e) =>
+                      dispatch({ type: "editScene", id: item.scene_id, title: e.target.value })
+                    }
+                  />
+                  <textarea
+                    className="scene-copy"
+                    rows={2}
+                    value={item.description}
+                    onClick={(e) => e.stopPropagation()}
+                    onFocus={() => dispatch({ type: "scene", id: item.scene_id })}
+                    onChange={(e) =>
+                      dispatch({
+                        type: "editScene",
+                        id: item.scene_id,
+                        description: e.target.value,
+                      })
+                    }
+                  />
+                  {assets && (assets.images.length || assets.videos.length) ? (
+                    <div className="scene-assets">
+                      {assets.images.map((url, i) => (
+                        <img key={`img-${i}`} src={url} alt="" />
+                      ))}
+                      {assets.videos.map((url, i) => (
+                        <video key={`vid-${i}`} src={url} muted />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
           <div className="lens-dock">
             {showKb ? (
               <aside className="kb">
@@ -494,7 +614,7 @@ export function Workbench() {
       </div>
 
       <ToolDock
-        ids={toolIds}
+        ids={activeToolIds}
         currentShot={currentShot}
         selectedLabel={
           selected
@@ -502,6 +622,7 @@ export function Workbench() {
             : "按住触控板右键点选并拖动物体"
         }
         previewing={previewing}
+        onClose={(id) => setActiveToolIds((cur) => cur.filter((item) => item !== id))}
         onFollow={() => void runDirector("镜头从人物侧后方跟拍")}
         onOrbit={() => void runDirector("环绕人物，最后绕到建筑正面")}
         onDolly={(dir) =>
@@ -513,46 +634,62 @@ export function Workbench() {
         onPreview={() => setPreviewing((value) => !value)}
         onGenerate={() => void generateShots()}
         onExport={() => setExportOpen(true)}
-        onReference={() => void analyzeReference()}
+        onReference={() =>
+          void analyzeReference(state.toneSkill?.dataUrl ?? state.imageDataUrl ?? undefined)
+        }
         onLanguage={() => setShowKb((value) => !value)}
       />
 
-      <section className="ref-bar">
-        <div className="ref-row">
-          <img
-            className={
-              state.imageDataUrl?.includes("heritage-wide")
-                ? "ref-thumb active"
-                : "ref-thumb"
-            }
-            src="/references/heritage-wide.svg"
-            alt="主参考"
-            onClick={() => analyzeReference("/references/heritage-wide.svg")}
-          />
-          <img
-            className="ref-thumb"
-            src="/references/person-building.svg"
-            alt="人物与建筑"
-            onClick={() => analyzeReference("/references/person-building.svg")}
-          />
-          <button className="btn ghost" onClick={() => analyzeReference()}>
-            Visual DNA
-          </button>
-        </div>
-        <div className="dna">
-          {state.busy ? <span className="chip">{state.busy}</span> : null}
+      {dnaChips.length ? (
+        <section className="shot-pattern sky-glass" aria-label="shot pattern">
+          <span>SHOT PATTERN</span>
           {dnaChips.map((chip) => (
-            <span className="chip" key={chip}>
-              {chip}
-            </span>
+            <em key={chip}>{chip}</em>
           ))}
-        </div>
-      </section>
+        </section>
+      ) : null}
+
+      <div className="model-dock sky-glass">
+        <input
+          ref={modelInputRef}
+          type="file"
+          accept=".ply,.spz,.splat,.ksplat,.glb,.gltf,model/gltf-binary,model/gltf+json"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) {
+              dispatch({ type: "model", name: file.name });
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="panel-x"
+          aria-label="清除模型"
+          onClick={() => dispatch({ type: "model", name: null })}
+        >
+          ×
+        </button>
+        <strong>场景模型</strong>
+        <span>{state.modelName ?? "上传 ply / spz / glb"}</span>
+        <button type="button" className="model-pick" onClick={() => modelInputRef.current?.click()}>
+          选择文件
+        </button>
+      </div>
 
       <div className="composer-dock">
         {state.pending ? (
           <DraggablePanel>
-          <div className="changes">
+          <div className="changes sky-glass">
+            <button
+              type="button"
+              className="panel-x"
+              aria-label="关闭"
+              onClick={() => dispatch({ type: "pending", pending: null })}
+            >
+              ×
+            </button>
             <div className="col-h" style={{ border: "none", padding: "0 0 8px" }}>
               CHANGES
             </div>
@@ -592,48 +729,36 @@ export function Workbench() {
         ) : null}
 
         <DraggablePanel>
-        <div className="composer-tools">
-          <select defaultValue="shot" aria-label="scope">
-            <option value="shot">Current Shot</option>
-            <option value="scene" disabled>
-              Current Scene
-            </option>
-            <option value="story" disabled>
-              Entire Story
-            </option>
-          </select>
-          {QUICK_PROMPTS.map((item) => (
-            <button
-              key={item.id}
-              className="quick"
-              onClick={() => {
-                dispatch({ type: "instruction", text: item.instruction });
-                void runDirector(item.instruction);
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        </DraggablePanel>
-
-        <DraggablePanel>
-        <section className="composer" aria-label="Director prompt">
-          <div className="drag-handle" aria-hidden />
+        <section className="composer gemini-glow" aria-label="Director prompt">
           {state.busy ? <p className="composer-status">{state.busy}</p> : null}
           <div className="composer-shell">
-            <button
-              type="button"
-              className={guideOpen ? "composer-plus on" : "composer-plus"}
-              title="引导工具"
-              aria-label="引导工具"
-              onClick={() => setGuideOpen((value) => !value)}
-            >
+            <label className="composer-plus" title="全片调性参考（本次对话 skill）">
               +
-            </button>
+              <input
+                ref={toneInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) {
+                    return;
+                  }
+                  dispatch({
+                    type: "tone",
+                    name: file.name,
+                    dataUrl: await readFileAsDataUrl(file),
+                  });
+                }}
+              />
+            </label>
+            {state.toneSkill ? (
+              <img className="tone-chip" src={state.toneSkill.dataUrl} alt="" title={state.toneSkill.name} />
+            ) : null}
             <textarea
               className="prompt"
-              placeholder="给导演一句话：跟拍、绕到正面、放慢人物…"
+              placeholder="用自然语言描述镜头与空间… 发送后弹出对应工具"
               value={state.instruction}
               rows={1}
               onChange={(e) => dispatch({ type: "instruction", text: e.target.value })}
@@ -647,8 +772,8 @@ export function Workbench() {
             <button
               className="composer-send"
               aria-label="发送导演指令"
-              disabled={!currentShot || state.busy !== null}
-              onClick={() => runDirector(state.instruction)}
+              disabled={!state.instruction.trim() || state.busy !== null}
+              onClick={() => void runDirector(state.instruction)}
             >
               ↑
             </button>
