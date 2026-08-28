@@ -1176,8 +1176,6 @@ input[type="range"]::-moz-range-thumb {
   border: 0;
   cursor: pointer;
 }
-  padding: 8px;
-}
 
 .product-hub,
 .subpage {
