@@ -104,6 +104,21 @@ export function ShotBoard({
                   <small>{item.hint}</small>
                 </button>
               ))}
+        {query && primary === "movement"
+          ? filtered.presets.map((item) => (
+              <button
+                key={`q-${item.id}`}
+                type="button"
+                className={
+                  presetMatchesShot(item, current) ? "shot preset on gemini-glow" : "shot preset"
+                }
+                onClick={() => onPreset(item)}
+              >
+                {item.label}
+                <small>{item.hint}</small>
+              </button>
+            ))
+          : null}
       </div>
     </aside>
   );
