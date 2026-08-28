@@ -9,7 +9,7 @@ import type { SceneSplat } from "@/lib/scene-visual";
 import { pathPoints, samplePath } from "@/lib/path-engine";
 import { filmDuration, seekTFromClientX, shotDuration } from "@/lib/film-timeline";
 import { heroView } from "@/lib/view-frame";
-import { SplatCloud } from "./SplatCloud";
+import { SplatCloud, forEachSparkRenderer } from "./SplatCloud";
 import { isTypingTarget, leftPaneNdc, VIEW_SPLIT } from "@/lib/view-pane";
 
 const TYPE_COLOR: Record<string, string> = {
@@ -162,9 +162,10 @@ function HeritageHall({
     setSplatFailed(false);
   }, [splat]);
   const showPoints = Boolean(cloud) && (!splat || splatFailed);
+  const showProxyMeshes = !splat || splatFailed;
   return (
     <group>
-      {uploaded ? null : (
+      {uploaded || splat ? null : (
         <>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 6]} receiveShadow>
             <planeGeometry args={[28, 36]} />
@@ -188,26 +189,28 @@ function HeritageHall({
         />
       ) : null}
       {showPoints && cloud ? <PointCloud geometry={cloud} /> : null}
-      {uploaded ? (
+      {showProxyMeshes && uploaded ? (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
           <planeGeometry args={[span + 8, span + 8]} />
           <meshStandardMaterial color="#101218" />
         </mesh>
       ) : null}
-      {space.objects
-        .filter((obj) => obj.type !== "ground")
-        .map((obj) => (
-          <MovableMesh
-            key={obj.id}
-            obj={obj}
-            dual={dual}
-            selected={obj.id === selectedId}
-            onSelect={onSelect}
-            onMove={onMove}
-            onPick={onPick}
-            onDragState={onDragState}
-          />
-        ))}
+      {showProxyMeshes
+        ? space.objects
+            .filter((obj) => obj.type !== "ground")
+            .map((obj) => (
+              <MovableMesh
+                key={obj.id}
+                obj={obj}
+                dual={dual}
+                selected={obj.id === selectedId}
+                onSelect={onSelect}
+                onMove={onMove}
+                onPick={onPick}
+                onDragState={onDragState}
+              />
+            ))
+        : null}
     </group>
   );
 }
@@ -449,10 +452,12 @@ function DualViewport({
     if (dual) {
       gl.setScissor(0, 0, split, h);
     }
+    forEachSparkRenderer(scene, (spark) => spark.update({ scene, camera: cam }));
     gl.render(scene, cam);
     if (dual) {
       gl.setViewport(split, 0, w - split, h);
       gl.setScissor(split, 0, w - split, h);
+      forEachSparkRenderer(scene, (spark) => spark.update({ scene, camera: pov }));
       gl.render(scene, pov);
     }
     gl.setScissorTest(false);
@@ -617,8 +622,8 @@ export function SpaceViewer({
       <div className={dual ? "viewer-split single-gl" : undefined} style={{ height: "100%" }}>
         <Canvas
           shadows
-          camera={{ position: hero.position, fov: hero.fov }}
-          gl={{ antialias: !splat, preserveDrawingBuffer: true }}
+          camera={{ position: hero.position, fov: hero.fov, near: 0.05, far: 4000 }}
+          gl={{ antialias: false, preserveDrawingBuffer: true }}
           onPointerMissed={() => onSelectObject(null)}
         >
           <color attach="background" args={["#07080a"]} />
@@ -663,7 +668,7 @@ export function SpaceViewer({
               <meshStandardMaterial color="#c45c4a" />
             </mesh>
           ) : null}
-          <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />
+          {splat ? null : <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />}
           <DualViewport
             dual={dual}
             previewing={previewing || filmPlaying}

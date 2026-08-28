@@ -153,6 +153,10 @@ export function bundledLibraryAssets() {
   ]);
 }
 
+export function worldSplatHref(id: string): string | null {
+  return GENERATED_WORLDS.some((world) => world.id === id) ? `/api/scene-splat/${id}` : null;
+}
+
 export function mergeLibraryAssets(existing: LibraryAsset[]): LibraryAsset[] {
   const bundled = bundledLibraryAssets();
   const bundledIds = new Set(bundled.map((item) => item.id));

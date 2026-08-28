@@ -24,7 +24,7 @@ import {
   SCENE_MODEL_ACCEPT,
   SCENE_MODEL_FORMATS,
 } from "@/lib/space-objects";
-import { GENERATED_WORLDS } from "@/lib/generated-worlds";
+import { GENERATED_WORLDS, worldSplatHref } from "@/lib/generated-worlds";
 import { heroView } from "@/lib/view-frame";
 import { formatBytes } from "@/lib/ply-stream";
 import { IDENTITY_FIT } from "@/lib/point-cluster";
@@ -598,25 +598,24 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }
 
   async function loadRemoteModel(item: LibraryItem) {
-    const url = item.spzUrl || item.remoteUrl;
+    const proxied = worldSplatHref(item.id);
+    const url = proxied || item.spzUrl || item.remoteUrl;
     if (!url) {
       setToast({ kind: "err", text: "这个场景没有可载入的模型地址" });
       return;
     }
     dispatch({ type: "busy", busy: `载入 ${item.name}…` });
-    setToast({ kind: "ok", text: `正在流式载入 ${item.name} 的 3DGS…` });
-    const extMatch = url.toLowerCase().match(/\.(ply|spz|splat|ksplat)(?:$|\?)/);
-    const ext = extMatch?.[1] ?? "spz";
-    const fileName = `${item.name}.${ext}`;
+    setToast({ kind: "ok", text: `正在载入 ${item.name} 的彩色 3DGS…` });
+    const fileName = `${item.id}.spz`;
     const nextSplat: SceneSplat = {
       url,
       fileName,
-      paged: true,
-      zUp: ext === "spz" || ext === "ply",
+      paged: false,
+      zUp: true,
       autoFit: true,
       fit: IDENTITY_FIT,
     };
-    const nextSpace = placeholderSpace(fileName, ext, `${item.name} · 3DGS ${ext.toUpperCase()}`);
+    const nextSpace = placeholderSpace(fileName, "spz", `${item.name} · 3DGS SPZ`);
     setLibrary((cur) =>
       cur.map((it) =>
         it.id === item.id
@@ -638,14 +637,15 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       : fallbackShots(scene.scene_id, nextSpace)
     ).map((shot) => applyPathToShot(shot, nextSpace));
     dispatch({ type: "shots", shots: remapped });
-    setSelectedId(nextSpace.objects.find((obj) => obj.type !== "ground")?.id ?? null);
+    setSelectedId(null);
     setActiveModelId(item.id);
     setModelOpen(false);
+    setDual(true);
     setPreviewing(true);
     setPreviewT(0);
     setFilmPlaying(false);
     dispatch({ type: "busy", busy: null });
-    setToast({ kind: "ok", text: `已 Apply ${item.name}` });
+    setToast({ kind: "ok", text: `已 Apply ${item.name} · 等待彩色场景出现` });
   }
 
   function applyLibrary(item: LibraryItem) {

@@ -59,6 +59,12 @@ describe("generated worlds catalog", () => {
     );
     expect(cinpathHrefForAsset({ id: "ref-1", kind: "image" })).toBeNull();
   });
+
+  it("serves world splats from a same-origin proxy", async () => {
+    const { worldSplatHref } = await import("../lib/generated-worlds");
+    expect(worldSplatHref("world-fjord")).toBe("/api/scene-splat/world-fjord");
+    expect(worldSplatHref("missing")).toBeNull();
+  });
 });
 
 describe("hero view", () => {
