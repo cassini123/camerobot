@@ -13,3 +13,10 @@ node_modules/
 .env
 .env.local
 *.tsbuildinfo
+
+# Reconstruction assets are too large for GitHub (model.ply ~3.3GB).
+example/*.ply
+example/*.PLY
+example/*.pcd
+example/*.splat
+example/*.spz
