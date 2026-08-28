@@ -1,9 +1,9 @@
-# Camerobot + 云径 VirtuPath
+# Camerobot + 云径 CinPath
 
 个人机器人摄影师 Pro：一个“类人型陪伴 + 专业摄影 + 无人机 + 轻摇臂 +
 移动储物”的机器人系统。
 
-## 云径 VirtuPath（A：框架 / 技术 Demo）
+## 云径 CinPath（A：框架 / 技术 Demo）
 
 云径是 everec 剧本与机器人执行端之间的桥梁：Story + Space + Reference → Shot + Path → Director Prompt → Export Shot Recipe JSON。不接真机、不做剪辑引擎。
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { virtupathHrefForAsset } from "../lib/library-types";
+import { cinpathHrefForAsset } from "../lib/library-types";
 import { bundledLibraryAssets, GENERATED_WORLDS, mergeLibraryAssets } from "../lib/generated-worlds";
 import { HALL_HERO, heroView } from "../lib/view-frame";
 import type { SpaceModel } from "../lib/types";
@@ -50,14 +50,14 @@ describe("generated worlds catalog", () => {
     expect(merged.some((item) => item.id === "user-1")).toBe(true);
   });
 
-  it("opens library scenes in VirtuPath by id, including pano cards", () => {
-    expect(virtupathHrefForAsset({ id: "world-fjord", kind: "scene" })).toBe(
-      "/yunjing/virtupath?scene=world-fjord",
+  it("opens library scenes in CinPath by id, including pano cards", () => {
+    expect(cinpathHrefForAsset({ id: "world-fjord", kind: "scene" })).toBe(
+      "/yunjing/cinpath?scene=world-fjord",
     );
-    expect(virtupathHrefForAsset({ id: "world-fjord-pano", kind: "image" })).toBe(
-      "/yunjing/virtupath?scene=world-fjord",
+    expect(cinpathHrefForAsset({ id: "world-fjord-pano", kind: "image" })).toBe(
+      "/yunjing/cinpath?scene=world-fjord",
     );
-    expect(virtupathHrefForAsset({ id: "ref-1", kind: "image" })).toBeNull();
+    expect(cinpathHrefForAsset({ id: "ref-1", kind: "image" })).toBeNull();
   });
 });
 

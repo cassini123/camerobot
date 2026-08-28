@@ -1,7 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { Workbench } from "@/components/Workbench";
-
-export default function VirtuPathRoute() {
-  return <Workbench skipIntro />;
+export default function VirtuPathRedirect() {
+  redirect("/yunjing/cinpath");
 }

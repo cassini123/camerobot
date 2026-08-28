@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { virtupathHrefForAsset, type AssetKind, type AssetSource } from "@/lib/library-types";
+import { cinpathHrefForAsset, type AssetKind, type AssetSource } from "@/lib/library-types";
 import { AssetThumb } from "./AssetThumb";
 import { ExploreMasonry } from "./ExploreMasonry";
 import { useLibrary } from "./LibraryProvider";
@@ -121,20 +121,20 @@ export function LibraryPage() {
               <p className="lib-empty">
                 {mineSource === "upload"
                   ? "还没有上传素材。图片 / 视频 / 物体 / 场景会分开放在这里。"
-                  : "还没有生成结果。VirtuPath 或 WORLD 生成的模型会进这一栏。"}
+                  : "还没有生成结果。CinPath 或 WORLD 生成的模型会进这一栏。"}
               </p>
             ) : (
               mine.map((item) => {
-                const virtupath = virtupathHrefForAsset(item);
+                const cinpath = cinpathHrefForAsset(item);
                 return (
                   <article
                     key={item.id}
                     className={picked === item.id ? "lib-card gemini-glow" : "lib-card"}
                     onClick={() => setPicked(item.id)}
                   >
-                    {virtupath ? (
+                    {cinpath ? (
                       <Link
-                        href={virtupath}
+                        href={cinpath}
                         className="lib-thumb"
                         onClick={(event) => event.stopPropagation()}
                       >
@@ -155,9 +155,9 @@ export function LibraryPage() {
                     </small>
                     {item.prompt ? <p>{item.prompt}</p> : null}
                     <div className="lib-actions" onClick={(event) => event.stopPropagation()}>
-                      {virtupath ? (
-                        <Link className="btn primary" href={virtupath}>
-                          在 VirtuPath 使用
+                      {cinpath ? (
+                        <Link className="btn primary" href={cinpath}>
+                          在 CinPath 使用
                         </Link>
                       ) : null}
                       {item.remoteUrl ? (

@@ -1365,8 +1365,8 @@ input[type="range"]::-moz-range-thumb {
 .hub-world {
   left: -80px;
   bottom: 28px;
-  transform: rotate(11deg);
-  transform-origin: left center;
+  transform: rotate(30deg);
+  transform-origin: center center;
 }
 
 .hub-library {
@@ -1382,7 +1382,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .hub-world:hover {
-  transform: rotate(7deg) translateX(10px);
+  transform: rotate(30deg) translateX(10px);
 }
 
 .globe-corner {

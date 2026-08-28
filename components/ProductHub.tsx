@@ -68,12 +68,12 @@ export function ProductHub() {
 
       <Link
         className={`hub-card hub-start${hubPick === "start" ? " gemini-glow" : ""}`}
-        href="/yunjing/virtupath"
+        href="/yunjing/cinpath"
         onClick={() => setHubPick("start")}
       >
         <span className="hub-plus">+</span>
-        <b>Start Create</b>
-        <em>进入 VirtuPath</em>
+        <b>Start Creating</b>
+        <em>进入 CinPath</em>
       </Link>
 
       <button
@@ -105,7 +105,7 @@ export function ProductHub() {
         }}
       >
         <small>{aholoReady ? "AHOLO WORLD" : "WORLD"}</small>
-        <strong>create your world model</strong>
+        <strong>creating your world model</strong>
         <em>{aholoReady ? "已接入 Aholo 生成 3DGS · 可拖入参考图" : "配置 AHOLO_API_KEY 后生成"}</em>
       </button>
 

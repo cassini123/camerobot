@@ -13,7 +13,7 @@ export function detectGenerateIntent(text: string): GenerateIntent | null {
   if (!prompt || SHOT_ONLY.test(prompt)) {
     return null;
   }
-  const wantsGenerate = /生成|create|make a|给我|做一/i.test(prompt);
+  const wantsGenerate = /生成|creat(?:e|ing)|make a|给我|做一/i.test(prompt);
   const world =
     /世界|场景模型|world model|重建场景|生成场景|生成世界|室内场景|3dgs|空间模型|厅堂|生成.{0,12}场景/i.test(
       prompt,
@@ -28,7 +28,7 @@ export function detectGenerateIntent(text: string): GenerateIntent | null {
   if (object && wantsGenerate) {
     return { kind: "object", prompt };
   }
-  if (/create your world|创建世界/i.test(prompt)) {
+  if (/creat(?:e|ing) your world|创建世界/i.test(prompt)) {
     return { kind: "world", prompt };
   }
   return null;

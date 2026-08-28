@@ -43,7 +43,7 @@ import type {
   Story,
   VisualDNA,
 } from "@/lib/types";
-import { VIRTUPATH_SCENE_PARAM } from "@/lib/library-types";
+import { CINPATH_SCENE_PARAM } from "@/lib/library-types";
 
 const SpaceViewer = dynamic(
   () => import("./SpaceViewer").then((m) => m.SpaceViewer),
@@ -305,7 +305,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }, [assets]);
 
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get(VIRTUPATH_SCENE_PARAM);
+    const wanted = new URLSearchParams(window.location.search).get(CINPATH_SCENE_PARAM);
     if (!wanted || appliedSceneRef.current === wanted) {
       return;
     }
@@ -910,7 +910,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           <Link href="/yunjing">
             <b>YUNJING</b>
           </Link>
-          <span>VirtuPath</span>
+          <span>CinPath</span>
         </div>
         <div className="hdr-actions">
           <button className="btn" onClick={() => setDual((v) => !v)}>
