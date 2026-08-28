@@ -1143,21 +1143,24 @@ input[type="range"]::-moz-range-thumb {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 3;
+  z-index: 6;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 28px;
+  padding: 18px 28px 18px min(28vw, 280px);
 }
 
 .product-mark {
   letter-spacing: 0.2em;
   font-size: 12px;
   color: var(--muted);
+  text-decoration: none;
+  text-transform: lowercase;
 }
 
 .product-hub {
   position: relative;
+  overflow: hidden;
 }
 
 .hub-card {
@@ -1191,12 +1194,14 @@ input[type="range"]::-moz-range-thumb {
 
 .hub-start {
   left: 50%;
-  top: 46%;
+  top: 50%;
+  width: 50vw;
+  height: 50vh;
   transform: translate(-50%, -50%);
-  min-width: 280px;
+  place-content: center;
   place-items: center;
   text-align: center;
-  padding: 36px 40px;
+  z-index: 4;
 }
 
 .hub-plus {
@@ -1204,22 +1209,356 @@ input[type="range"]::-moz-range-thumb {
   color: var(--gold);
 }
 
+.hub-predesign,
+.hub-world,
+.hub-library {
+  width: 280px;
+  z-index: 3;
+}
+
 .hub-predesign {
-  top: 88px;
-  right: 36px;
-  width: 240px;
+  top: 72px;
+  right: 0;
+  transform: perspective(900px) rotateY(-32deg) translateX(46%);
+  transform-origin: right center;
 }
 
 .hub-world {
-  left: 36px;
-  bottom: 40px;
-  width: 260px;
+  left: 0;
+  bottom: 48px;
+  transform: perspective(900px) rotateY(32deg) translateX(-46%);
+  transform-origin: left center;
 }
 
 .hub-library {
-  right: 36px;
-  bottom: 40px;
-  width: 200px;
+  right: 0;
+  bottom: 48px;
+  transform: perspective(900px) rotateY(-32deg) translateX(46%);
+  transform-origin: right center;
+}
+
+.hub-predesign:hover,
+.hub-library:hover {
+  transform: perspective(900px) rotateY(-18deg) translateX(28%);
+}
+
+.hub-world:hover {
+  transform: perspective(900px) rotateY(18deg) translateX(-28%);
+}
+
+.globe-corner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  width: min(42vw, 420px);
+  height: min(42vw, 420px);
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.globe-corner em {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  z-index: 3;
+  font-style: normal;
+  letter-spacing: 0.16em;
+  font-size: 11px;
+  color: #d7efe4;
+  pointer-events: auto;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+
+.globe-disk {
+  position: absolute;
+  width: 150%;
+  height: 150%;
+  left: -78%;
+  top: -78%;
+  border-radius: 50%;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow:
+    inset -18px -10px 40px rgba(8, 24, 28, 0.45),
+    0 0 40px rgba(90, 180, 160, 0.18);
+}
+
+.globe-ocean {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 62% 58%, #7fd0c0 0%, #1d6b78 42%, #0c3a48 78%, #071820 100%);
+}
+
+.globe-land {
+  position: absolute;
+  inset: 8%;
+  background:
+    url("/game/peninsula.jpg") 58% 42% / 92% no-repeat;
+  mix-blend-mode: multiply;
+  filter: sepia(0.15) saturate(1.4) hue-rotate(95deg) contrast(1.15);
+  opacity: 0.88;
+  border-radius: 50%;
+}
+
+.globe-flow {
+  position: absolute;
+  inset: -20%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 8%,
+    rgba(180, 255, 230, 0.0) 12%,
+    rgba(160, 255, 220, 0.55) 16%,
+    transparent 22% 100%
+  );
+  animation: globe-flow 7s linear infinite;
+  mix-blend-mode: screen;
+}
+
+.globe-ring {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  border: 1px solid rgba(212, 165, 116, 0.45);
+  box-shadow: 0 0 18px rgba(212, 165, 116, 0.25);
+  animation: globe-ring 5.5s ease-in-out infinite;
+}
+
+.globe-sketch {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(20, 18, 14, 0.35);
+  background:
+    repeating-linear-gradient(
+      118deg,
+      transparent 0 7px,
+      rgba(20, 18, 14, 0.04) 7px 8px
+    );
+}
+
+@keyframes globe-flow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes globe-ring {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+}
+
+.game-world {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 280px;
+  background:
+    radial-gradient(900px 500px at 30% 20%, rgba(90, 160, 140, 0.12), transparent 50%),
+    var(--bg);
+}
+
+.friend-rail {
+  border-right: 1px solid var(--line);
+  padding: 88px 10px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.friend-rail > p {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+
+.friend {
+  width: 52px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  position: relative;
+}
+
+.friend b {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--f) 35%, #14161c);
+  border: 2px solid var(--f);
+}
+
+.friend small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.friend.on b {
+  box-shadow: 0 0 0 3px rgba(212, 165, 116, 0.35);
+}
+
+.friend i {
+  position: absolute;
+  right: 6px;
+  top: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid #07080a;
+}
+
+.friend i.online {
+  background: #7dba8a;
+}
+
+.friend i.offline {
+  background: #666;
+}
+
+.game-map-wrap {
+  min-width: 0;
+  padding: 88px 16px 24px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.game-map {
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #102226;
+  min-height: 420px;
+}
+
+.map-wash {
+  position: absolute;
+  inset: 0;
+  background:
+    url("/game/peninsula.jpg") center / cover no-repeat;
+  filter: sepia(0.2) hue-rotate(92deg) saturate(1.25) brightness(0.72);
+  opacity: 0.92;
+}
+
+.map-wash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      115deg,
+      transparent 0 10px,
+      rgba(10, 12, 10, 0.05) 10px 11px
+    );
+}
+
+.pin {
+  position: absolute;
+  transform: translate(-50%, -110%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(8, 10, 12, 0.72);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 6px 8px;
+  min-width: 88px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin span {
+  display: block;
+  font-size: 12px;
+}
+
+.pin em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.pin.shared {
+  border-color: var(--gold);
+}
+
+.pin.here {
+  background: rgba(212, 165, 116, 0.28);
+}
+
+.you-token {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #7dba8a;
+  box-shadow: 0 0 12px #7dba8a;
+  transform: translate(-50%, 8px);
+  pointer-events: none;
+}
+
+.map-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.game-feed {
+  border-left: 1px solid var(--line);
+  padding: 88px 18px 18px;
+  overflow: auto;
+}
+
+.game-feed h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+}
+
+.feed-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.game-feed ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.game-feed li button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.game-feed small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
 }
 
 .predesign-grid,
@@ -1355,7 +1694,8 @@ input[type="range"]::-moz-range-thumb {
   .hub-start,
   .hub-predesign,
   .hub-world,
-  .hub-library {
+  .hub-library,
+  .globe-corner {
     position: relative;
     left: auto;
     right: auto;
@@ -1363,7 +1703,24 @@ input[type="range"]::-moz-range-thumb {
     bottom: auto;
     transform: none;
     width: auto;
+    height: auto;
     margin: 12px 20px;
+  }
+  .globe-corner {
+    width: 180px;
+    height: 180px;
+  }
+  .globe-disk {
+    left: -40%;
+    top: -40%;
+    width: 140%;
+    height: 140%;
+  }
+  .product-top {
+    padding-left: 28px;
+  }
+  .game-world {
+    grid-template-columns: 1fr;
   }
   .product-hub {
     padding-top: 72px;

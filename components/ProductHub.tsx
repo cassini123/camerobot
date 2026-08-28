@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { IntroSplash } from "./IntroSplash";
+import { GlobeCorner } from "./GlobeCorner";
 import { useLibrary } from "./LibraryProvider";
 import { useCallback, useState } from "react";
 
@@ -16,18 +17,22 @@ export function ProductHub() {
         <Link className="brand" href="/yunjing">
           <b>YUNJING</b>
         </Link>
-        <span className="product-mark">Product</span>
+        <Link className="product-mark" href="/yunjing/predesign">
+          start design
+        </Link>
       </header>
 
+      <GlobeCorner />
+
       <Link className="hub-card hub-predesign" href="/yunjing/predesign">
-        <small>PREDESIGN</small>
+        <small>START DESIGN</small>
         <strong>Story · Visual · Front</strong>
       </Link>
 
       <Link className="hub-card hub-start" href="/yunjing/virtupath">
         <span className="hub-plus">+</span>
         <b>Start Create</b>
-        <em>进入 VirtuPath 工作台</em>
+        <em>进入 VirtuPath</em>
       </Link>
 
       <button
