@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -18,17 +19,30 @@ import {
   type LibraryAsset,
 } from "@/lib/library-types";
 import { GenerateModal } from "./GenerateModal";
+import { GenerateDock } from "./GenerateDock";
 import type { GenerateKind } from "@/lib/generate-intent";
+import { runGenerateJob, type GenerateJob } from "@/lib/generate-job";
 
 const META_KEY = "yunjing-library-meta-v1";
 
-type GenerateOpen = { kind: GenerateKind; prompt?: string } | null;
+type GenerateOpen = {
+  kind: GenerateKind;
+  prompt?: string;
+  image?: { name: string; dataUrl: string } | null;
+  jobId?: string;
+} | null;
 
 type LibraryContextValue = {
   assets: LibraryAsset[];
+  jobs: GenerateJob[];
   addFromFile: (
     file: File,
-    options?: { kind?: AssetKind; source?: AssetSource; prompt?: string },
+    options?: {
+      kind?: AssetKind;
+      source?: AssetSource;
+      prompt?: string;
+      previewUrl?: string;
+    },
   ) => Promise<LibraryAsset>;
   addFromDataUrl: (
     name: string,
@@ -44,7 +58,11 @@ type LibraryContextValue = {
     previewUrl?: string;
   }) => Promise<LibraryAsset>;
   getBlob: (id: string) => Promise<Blob | undefined>;
-  openGenerate: (kind: GenerateKind, prompt?: string) => void;
+  openGenerate: (
+    kind: GenerateKind,
+    prompt?: string,
+    image?: { name: string; dataUrl: string } | null,
+  ) => void;
 };
 
 const LibraryContext = createContext<LibraryContextValue | null>(null);
@@ -94,20 +112,42 @@ function loadMeta(): LibraryAsset[] {
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [generate, setGenerate] = useState<GenerateOpen>(null);
+  const [jobs, setJobs] = useState<GenerateJob[]>([]);
+  const [docking, setDocking] = useState(false);
+  const abortRef = useRef(new Map<string, AbortController>());
 
   useEffect(() => {
-    setAssets(mergeLibraryAssets(loadMeta()));
+    void (async () => {
+      const meta = mergeLibraryAssets(loadMeta());
+      const restored = await Promise.all(
+        meta.map(async (item) => {
+          const preview = await getBlob(`preview-${item.id}`);
+          if (preview) {
+            return { ...item, previewUrl: URL.createObjectURL(preview) };
+          }
+          const blob = await getBlob(item.id);
+          if (blob?.type.startsWith("image/") || blob?.type.startsWith("video/")) {
+            return { ...item, previewUrl: URL.createObjectURL(blob) };
+          }
+          return item;
+        }),
+      );
+      setAssets(restored);
+    })();
   }, []);
 
-  const addAsset = useCallback(async (asset: LibraryAsset, blob?: Blob) => {
+  const addAsset = useCallback(async (asset: LibraryAsset, blob?: Blob, preview?: Blob) => {
     if (blob) {
       await putBlob(asset.id, blob).catch(() => undefined);
+    }
+    if (preview) {
+      await putBlob(`preview-${asset.id}`, preview).catch(() => undefined);
     }
     setAssets((cur) => {
       const next = [asset, ...cur.filter((item) => item.id !== asset.id)];
       const slim = next.map((item) => {
         const copy = { ...item };
-        if (copy.previewUrl?.startsWith("blob:")) {
+        if (copy.previewUrl?.startsWith("blob:") || copy.previewUrl?.startsWith("data:")) {
           delete copy.previewUrl;
         }
         return copy;
@@ -121,10 +161,23 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const addFromFile = useCallback(
     async (
       file: File,
-      options?: { kind?: AssetKind; source?: AssetSource; prompt?: string },
+      options?: {
+        kind?: AssetKind;
+        source?: AssetSource;
+        prompt?: string;
+        previewUrl?: string;
+      },
     ) => {
       const id = `${file.name}-${file.size}-${Date.now()}`;
-      const previewUrl = URL.createObjectURL(file);
+      let previewUrl = options?.previewUrl;
+      let previewBlob: Blob | undefined;
+      if (previewUrl?.startsWith("data:")) {
+        const blob = await fetch(previewUrl).then((res) => res.blob());
+        previewBlob = blob;
+        previewUrl = URL.createObjectURL(blob);
+      } else if (file.type.startsWith("image/") || file.type.startsWith("video/")) {
+        previewUrl = URL.createObjectURL(file);
+      }
       const asset: LibraryAsset = {
         id,
         name: file.name,
@@ -136,7 +189,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         prompt: options?.prompt,
         previewUrl,
       };
-      return addAsset(asset, file);
+      return addAsset(asset, file, previewBlob);
     },
     [addAsset],
   );
@@ -164,6 +217,21 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       remoteUrl?: string;
       previewUrl?: string;
     }) => {
+      let previewUrl = input.previewUrl;
+      let previewBlob: Blob | undefined;
+      if (previewUrl?.startsWith("data:")) {
+        const blob = await fetch(previewUrl).then((res) => res.blob());
+        previewBlob = blob;
+        previewUrl = URL.createObjectURL(blob);
+      } else if (previewUrl?.startsWith("http")) {
+        try {
+          const blob = await fetch(previewUrl).then((res) => res.blob());
+          previewBlob = blob;
+          previewUrl = URL.createObjectURL(blob);
+        } catch {
+          /* keep remote url */
+        }
+      }
       const asset: LibraryAsset = {
         id: `gen-${Date.now()}`,
         name: input.name,
@@ -173,38 +241,154 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         createdAt: Date.now(),
         prompt: input.prompt,
         remoteUrl: input.remoteUrl,
-        previewUrl: input.previewUrl,
+        previewUrl,
       };
-      return addAsset(asset);
+      return addAsset(asset, undefined, previewBlob);
     },
     [addAsset],
   );
 
+  const patchJob = useCallback((id: string, patch: Partial<GenerateJob>) => {
+    setJobs((cur) => cur.map((job) => (job.id === id ? { ...job, ...patch } : job)));
+  }, []);
+
+  const startJob = useCallback(
+    (input: {
+      kind: GenerateKind;
+      prompt: string;
+      image?: { name: string; dataUrl: string } | null;
+    }) => {
+      const text = input.prompt.trim();
+      if (!text) {
+        return;
+      }
+      const id = `job-${Date.now()}`;
+      const controller = new AbortController();
+      abortRef.current.set(id, controller);
+      const job: GenerateJob = {
+        id,
+        kind: input.kind,
+        prompt: text,
+        imageDataUrl: input.image?.dataUrl,
+        status: "running",
+        phase: "提交生成任务…",
+        minimized: false,
+        createdAt: Date.now(),
+      };
+      setJobs((cur) => [job, ...cur]);
+      setGenerate({ kind: input.kind, prompt: text, image: input.image, jobId: id });
+      void (async () => {
+        try {
+          const result = await runGenerateJob(
+            { kind: input.kind, prompt: text, imageDataUrl: input.image?.dataUrl },
+            {
+              signal: controller.signal,
+              onPhase: (phase, extra) =>
+                patchJob(id, {
+                  phase,
+                  progress: extra?.progress,
+                  previewUrl: extra?.previewUrl,
+                }),
+            },
+          );
+          if (result.file) {
+            await addFromFile(result.file, {
+              kind: input.kind === "world" ? "scene" : "object",
+              source: "generated",
+              prompt: text,
+              previewUrl: result.previewUrl || input.image?.dataUrl,
+            });
+          } else {
+            await addGenerated({
+              name: text.slice(0, 42),
+              kind: input.kind === "world" ? "scene" : "object",
+              prompt: text,
+              remoteUrl: result.remoteUrl,
+              previewUrl: result.previewUrl || input.image?.dataUrl,
+            });
+          }
+          patchJob(id, { status: "done", phase: "已加入 Library", minimized: true });
+          setGenerate((cur) => (cur?.jobId === id ? null : cur));
+          window.setTimeout(() => {
+            setJobs((cur) => cur.filter((item) => item.id !== id || item.status !== "done"));
+          }, 12000);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "生成失败";
+          patchJob(id, { status: "failed", error: message, phase: message, minimized: true });
+          setGenerate((cur) => (cur?.jobId === id ? null : cur));
+        } finally {
+          abortRef.current.delete(id);
+        }
+      })();
+    },
+    [addFromFile, addGenerated, patchJob],
+  );
+
+  const minimizeGenerate = useCallback(() => {
+    if (!generate?.jobId) {
+      setGenerate(null);
+      return;
+    }
+    setDocking(true);
+    const id = generate.jobId;
+    window.setTimeout(() => {
+      patchJob(id, { minimized: true });
+      setGenerate(null);
+      setDocking(false);
+    }, 420);
+  }, [generate, patchJob]);
+
   const value = useMemo(
     () => ({
       assets,
+      jobs,
       addFromFile,
       addFromDataUrl,
       addGenerated,
       getBlob,
-      openGenerate: (kind: GenerateKind, prompt?: string) =>
-        setGenerate({ kind, prompt }),
+      openGenerate: (
+        kind: GenerateKind,
+        prompt?: string,
+        image?: { name: string; dataUrl: string } | null,
+      ) => setGenerate({ kind, prompt, image }),
     }),
-    [assets, addFromFile, addFromDataUrl, addGenerated],
+    [assets, jobs, addFromFile, addFromDataUrl, addGenerated],
   );
+
+  const activeJob = jobs.find((job) => job.id === generate?.jobId);
 
   return (
     <LibraryContext.Provider value={value}>
       {children}
-      {generate ? (
+      {generate && !activeJob?.minimized ? (
         <GenerateModal
           kind={generate.kind}
           initialPrompt={generate.prompt ?? ""}
+          initialImage={generate.image}
+          job={activeJob}
+          docking={docking}
           onClose={() => setGenerate(null)}
-          addGenerated={addGenerated}
-          addFromFile={addFromFile}
+          onMinimize={minimizeGenerate}
+          onStart={startJob}
         />
       ) : null}
+      <GenerateDock
+        jobs={jobs}
+        onOpen={(id) => {
+          const job = jobs.find((item) => item.id === id);
+          if (!job) {
+            return;
+          }
+          patchJob(id, { minimized: false });
+          setGenerate({
+            kind: job.kind,
+            prompt: job.prompt,
+            image: job.imageDataUrl ? { name: "reference", dataUrl: job.imageDataUrl } : null,
+            jobId: id,
+          });
+        }}
+        onDismiss={(id) => setJobs((cur) => cur.filter((item) => item.id !== id))}
+      />
     </LibraryContext.Provider>
   );
 }

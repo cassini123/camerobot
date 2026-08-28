@@ -66,6 +66,8 @@ export async function pollAholoJob(
   status: string;
   downloadUrl?: string;
   format?: string;
+  previewUrl?: string;
+  progress?: number;
   error?: string;
 }> {
   if (kind === "world") {
@@ -77,6 +79,16 @@ export async function pollAholoJob(
       status: detail.status ?? "PENDING",
       downloadUrl: ply || spz,
       format: ply ? "ply" : spz ? "spz" : undefined,
+      previewUrl: detail.cover || detail.assets?.imagery?.panoUrl,
+      progress: detail.progress,
+      error:
+        detail.status === "FAILED" ||
+        detail.status === "TIMEOUT" ||
+        detail.status === "REJECTED"
+          ? `世界生成失败（${detail.status}）`
+          : detail.status === "CANCELED"
+            ? "世界生成已取消"
+            : undefined,
     };
   }
   const lux3d = createLux3dClient(cfg());
@@ -100,6 +112,11 @@ export async function pollAholoJob(
     status,
     downloadUrl: glb?.content || ply?.content || any?.content || undefined,
     format: glb ? "glb" : ply ? "ply" : undefined,
-    error: status === "FAILED" ? "Lux3D 任务失败" : undefined,
+    error:
+      status === "FAILED"
+        ? "Lux3D 任务失败（status=FAILED）。检查参考图是否可读、额度是否用尽。"
+        : status === "CANCELED"
+          ? "Lux3D 任务已取消"
+          : undefined,
   };
 }

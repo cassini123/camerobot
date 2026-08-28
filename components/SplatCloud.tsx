@@ -59,10 +59,18 @@ export function SplatCloud({
         renderer: gl,
         onDirty: () => invalidate(),
       }) as unknown as Object3D;
-      mesh = new SplatMesh({
-        fileBytes: splat.fileBytes,
+      const options: {
+        url?: string;
+        fileBytes?: ArrayBuffer;
+        fileName: string;
+        lod: boolean;
+        paged: boolean;
+        raycastable: boolean;
+        onLoad: (loaded: unknown) => void;
+      } = {
         fileName: splat.fileName,
         lod: true,
+        paged: splat.paged ?? Boolean(splat.url),
         raycastable: false,
         onLoad: (loaded) => {
           if (!splat.autoFit) {
@@ -84,7 +92,14 @@ export function SplatCloud({
           });
           disableRaycast(node);
         },
-      }) as unknown as Disposable;
+      };
+      if (splat.url) {
+        options.url = splat.url;
+      }
+      if (splat.fileBytes) {
+        options.fileBytes = splat.fileBytes;
+      }
+      mesh = new SplatMesh(options) as unknown as Disposable;
       mesh.raycast = () => {};
       if (splat.zUp) {
         mesh.rotation.x = -Math.PI / 2;

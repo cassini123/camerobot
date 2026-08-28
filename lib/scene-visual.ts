@@ -1,11 +1,13 @@
 import type { FitTransform } from "./point-cluster";
 import type { BufferGeometry } from "three";
 
-/** Spark 全量解码上限；更大的高斯 PLY 仍走抽样点云。 */
+/** Spark 走 ArrayBuffer 的上限；更大的高斯 PLY 用 url + paged。 */
 export const SPARK_MAX_BYTES = 800 * 1024 * 1024;
 
 export type SceneSplat = {
-  fileBytes: ArrayBuffer;
+  fileBytes?: ArrayBuffer;
+  url?: string;
+  paged?: boolean;
   fileName: string;
   zUp: boolean;
   fit: FitTransform;

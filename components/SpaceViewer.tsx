@@ -7,9 +7,10 @@ import * as THREE from "three";
 import type { CameraPath, Shot, SpaceModel, SpaceObject, Vec3 } from "@/lib/types";
 import type { SceneSplat } from "@/lib/scene-visual";
 import { pathPoints, samplePath } from "@/lib/path-engine";
-import { filmDuration, shotDuration } from "@/lib/film-timeline";
+import { filmDuration, seekTFromClientX, shotDuration } from "@/lib/film-timeline";
 import { heroView } from "@/lib/view-frame";
 import { SplatCloud } from "./SplatCloud";
+import { isTypingTarget, leftPaneNdc, VIEW_SPLIT } from "@/lib/view-pane";
 
 const TYPE_COLOR: Record<string, string> = {
   building: "#8a6a45",
@@ -22,7 +23,7 @@ const TYPE_COLOR: Record<string, string> = {
   object: "#6b5c7a",
 };
 
-const SPLIT = 0.62;
+const SPLIT = VIEW_SPLIT;
 
 function shotFov(shot: Shot | undefined): number {
   if (!shot) {
@@ -64,12 +65,11 @@ function MovableMesh({
         return;
       }
       const rect = canvas.getBoundingClientRect();
-      const width = dual ? rect.width * SPLIT : rect.width;
-      const ndc = new THREE.Vector2(
-        ((event.clientX - rect.left) / Math.max(1, width)) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      raycaster.setFromCamera(ndc, camera);
+      const ndc = leftPaneNdc(event.clientX, event.clientY, rect, dual);
+      if (!ndc) {
+        return;
+      }
+      raycaster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera);
       const hit = new THREE.Vector3();
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -height);
       if (raycaster.ray.intersectPlane(plane, hit)) {
@@ -104,25 +104,18 @@ function MovableMesh({
         if (event.nativeEvent.button !== 0) {
           return;
         }
-        if (!selected) {
-          return;
-        }
+        onSelect(obj.id);
         dragging.current = true;
         onDragState(true);
-      }}
-      onDoubleClick={(event) => {
-        event.stopPropagation();
-        onPick();
-        onSelect(obj.id);
       }}
     >
       <boxGeometry args={obj.size || [1, 1, 1]} />
       <meshStandardMaterial
         color={obj.color || TYPE_COLOR[obj.type] || "#666"}
         transparent
-        opacity={selected ? 0.55 : 0.28}
-        emissive={selected ? "#ffffff" : "#000000"}
-        emissiveIntensity={selected ? 0.18 : 0}
+        opacity={selected ? 0.62 : 0.28}
+        emissive={selected ? "#c5dcff" : "#000000"}
+        emissiveIntensity={selected ? 0.55 : 0}
         wireframe={false}
       />
     </mesh>
@@ -227,6 +220,8 @@ function PathLine({ path, color }: { path: CameraPath; color: string }) {
   return <Line points={points} color={color} lineWidth={2} />;
 }
 
+const GIZMO_LAYER = 1;
+
 function CameraGizmo({
   position,
   target,
@@ -236,21 +231,33 @@ function CameraGizmo({
   target: Vec3;
   active: boolean;
 }) {
+  const root = useRef<THREE.Group>(null);
+  const body = useRef<THREE.Group>(null);
+  useLayoutEffect(() => {
+    root.current?.traverse((obj) => obj.layers.set(GIZMO_LAYER));
+  });
+  useFrame(() => {
+    const group = body.current;
+    if (!group) {
+      return;
+    }
+    group.position.set(position[0], position[1], position[2]);
+    group.lookAt(target[0], target[1], target[2]);
+  });
   return (
-    <group position={position}>
-      <mesh>
-        <boxGeometry args={[0.35, 0.22, 0.5]} />
-        <meshStandardMaterial color={active ? "#f0d2a8" : "#888"} />
-      </mesh>
-      <mesh position={[0, 0, 0.38]} rotation={[Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.12, 0.28, 8]} />
-        <meshStandardMaterial color={active ? "#d4a574" : "#555"} />
-      </mesh>
+    <group ref={root}>
+      <group ref={body} position={position}>
+        <mesh>
+          <boxGeometry args={[0.55, 0.32, 0.85]} />
+          <meshStandardMaterial color={active ? "#f0d2a8" : "#888"} />
+        </mesh>
+        <mesh position={[0, 0, -0.62]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.18, 0.4, 8]} />
+          <meshStandardMaterial color={active ? "#d4a574" : "#555"} />
+        </mesh>
+      </group>
       <Line
-        points={[
-          [0, 0, 0],
-          [target[0] - position[0], target[1] - position[1], target[2] - position[2]],
-        ]}
+        points={[position, target]}
         color={active ? "#f0d2a8" : "#555"}
         dashed
         dashSize={0.2}
@@ -285,27 +292,52 @@ function DualViewport({
   previewing,
   camPos,
   lookTarget,
-  orbitTarget,
   orbitFov,
   povFov,
   dutch,
   handheld,
   orbitLock,
+  lookAt,
 }: {
   dual: boolean;
   previewing: boolean;
   camPos: Vec3;
   lookTarget: Vec3;
-  orbitTarget: Vec3;
   orbitFov: number;
   povFov: number;
   dutch: boolean;
   handheld: boolean;
   orbitLock: boolean;
+  lookAt: Vec3;
 }) {
-  const { gl, scene, camera, size } = useThree();
+  const { gl, scene, camera, size, events } = useThree();
   const pov = useMemo(() => new THREE.PerspectiveCamera(48, 1, 0.05, 4000), []);
   const [rightHover, setRightHover] = useState(false);
+  const keys = useRef<Record<string, boolean>>({});
+  const dualRef = useRef(dual);
+  dualRef.current = dual;
+  const target = useMemo(() => new THREE.Vector3(lookAt[0], lookAt[1], lookAt[2]), []);
+
+  useEffect(() => {
+    target.set(lookAt[0], lookAt[1], lookAt[2]);
+  }, [lookAt, target]);
+
+  useEffect(() => {
+    const previous = events.compute;
+    events.compute = (event, state) => {
+      const rect = state.gl.domElement.getBoundingClientRect();
+      const ndc = leftPaneNdc(event.clientX, event.clientY, rect, dualRef.current);
+      if (!ndc) {
+        state.pointer.set(10, 10);
+        return;
+      }
+      state.pointer.set(ndc.x, ndc.y);
+      state.raycaster.setFromCamera(state.pointer, state.camera);
+    };
+    return () => {
+      events.compute = previous;
+    };
+  }, [events]);
 
   useEffect(() => {
     const el = gl.domElement;
@@ -326,43 +358,93 @@ function DualViewport({
     };
   }, [gl, dual]);
 
-  useFrame(({ clock }) => {
+  useEffect(() => {
+    const fly = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"]);
+    const down = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+      keys.current[event.code] = true;
+      if (fly.has(event.code)) {
+        event.preventDefault();
+      }
+    };
+    const up = (event: KeyboardEvent) => {
+      keys.current[event.code] = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
+  useFrame((state, dt) => {
     const w = size.width;
     const h = Math.max(1, size.height);
     const split = dual ? Math.max(1, Math.floor(w * SPLIT)) : w;
     const cam = camera as THREE.PerspectiveCamera;
-    const shake = handheld
-      ? Math.sin(clock.elapsedTime * 9.2) * 0.035
-      : 0;
-    const shakeY = handheld ? Math.cos(clock.elapsedTime * 7.1) * 0.018 : 0;
-    const px = camPos[0] + shake;
-    const py = camPos[1] + shakeY;
-    const pz = camPos[2];
-
-    if (previewing) {
-      cam.position.lerp(new THREE.Vector3(px, py, pz), 0.28);
-      cam.lookAt(lookTarget[0], lookTarget[1], lookTarget[2]);
-      if (dutch) {
-        cam.rotateZ(0.16);
+    const world = !orbitLock && !rightHover;
+    if (world && !isTypingTarget(document.activeElement)) {
+      const speed = (keys.current.ShiftLeft || keys.current.ShiftRight ? 16 : 7) * dt;
+      const forward = new THREE.Vector3();
+      cam.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() > 0.0001) {
+        forward.normalize();
+      } else {
+        forward.set(0, 0, -1);
       }
-      cam.fov = orbitFov;
+      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+      const delta = new THREE.Vector3();
+      if (keys.current.KeyW) {
+        delta.addScaledVector(forward, speed);
+      }
+      if (keys.current.KeyS) {
+        delta.addScaledVector(forward, -speed);
+      }
+      if (keys.current.KeyA) {
+        delta.addScaledVector(right, -speed);
+      }
+      if (keys.current.KeyD) {
+        delta.addScaledVector(right, speed);
+      }
+      if (keys.current.KeyE) {
+        delta.y += speed;
+      }
+      if (keys.current.KeyQ) {
+        delta.y -= speed;
+      }
+      if (delta.lengthSq() > 0) {
+        cam.position.add(delta);
+        target.add(delta);
+      }
     }
+
+    cam.fov = orbitFov;
     cam.aspect = split / h;
+    cam.layers.enable(0);
+    cam.layers.enable(GIZMO_LAYER);
     cam.updateProjectionMatrix();
 
+    const shake = handheld && previewing ? Math.sin(state.clock.elapsedTime * 9.2) * 0.035 : 0;
+    const shakeY = handheld && previewing ? Math.cos(state.clock.elapsedTime * 7.1) * 0.018 : 0;
     pov.fov = povFov;
     pov.near = 0.05;
     pov.far = 4000;
+    pov.layers.enable(0);
+    pov.layers.disable(GIZMO_LAYER);
     pov.aspect = dual ? Math.max(0.2, (w - split) / h) : 1;
-    pov.position.set(px, py, pz);
+    pov.position.set(camPos[0] + shake, camPos[1] + shakeY, camPos[2]);
     pov.lookAt(lookTarget[0], lookTarget[1], lookTarget[2]);
     if (dutch) {
       pov.rotateZ(0.16);
     }
     pov.updateProjectionMatrix();
 
-    gl.autoClear = true;
     gl.setScissorTest(dual);
+    gl.autoClear = true;
     gl.setViewport(0, 0, split, h);
     if (dual) {
       gl.setScissor(0, 0, split, h);
@@ -374,15 +456,16 @@ function DualViewport({
       gl.render(scene, pov);
     }
     gl.setScissorTest(false);
+    gl.autoClear = true;
   }, 1);
 
   return (
     <OrbitControls
       makeDefault
       enableDamping
-      enabled={!orbitLock && !previewing && !rightHover}
-      enablePan={false}
-      target={orbitTarget}
+      enabled={!orbitLock && !rightHover}
+      enablePan
+      target={target}
     />
   );
 }
@@ -405,7 +488,6 @@ export function SpaceViewer({
   filmT,
   onToggleTimeline,
   onPlayFilm,
-  onPickShot,
   onSeekFilm,
   onEnsureShots,
 }: {
@@ -426,20 +508,16 @@ export function SpaceViewer({
   filmT: number;
   onToggleTimeline: () => void;
   onPlayFilm: () => void;
-  onPickShot: (id: string) => void;
   onSeekFilm: (t: number) => void;
   onEnsureShots: () => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const hero = heroView(space);
   const camPos: Vec3 = current
-    ? previewing || filmPlaying
-      ? samplePath(current.path, previewT)
-      : current.path.start
+    ? samplePath(current.path, previewT)
     : ([0, 2, 8] as Vec3);
   const rootRef = useRef<HTMLDivElement>(null);
-  const pointer = useRef({ x: 0, y: 0, dragging: false });
-  const skipFull = useRef(false);
+  const draggingRef = useRef(false);
   const [full, setFull] = useState(false);
   const [orbitLock, setOrbitLock] = useState(false);
   const picked = space.objects.find((obj) => obj.id === selectedId);
@@ -495,51 +573,53 @@ export function SpaceViewer({
     }
   }
 
+  function toggleFullscreen() {
+    if (document.fullscreenElement || full) {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen();
+      }
+      setFull(false);
+      return;
+    }
+    enterFullscreen();
+  }
+
   return (
     <div
       ref={rootRef}
       className={`viewer ${full ? "is-full" : ""} ${lookClass} ${gradeClass}`.trim()}
       onContextMenu={(event) => event.preventDefault()}
-      onPointerDown={(event) => {
-        if (event.button !== 0) {
-          return;
-        }
-        pointer.current = { x: event.clientX, y: event.clientY, dragging: false };
-      }}
-      onPointerMove={(event) => {
-        if (
-          Math.hypot(
-            event.clientX - pointer.current.x,
-            event.clientY - pointer.current.y,
-          ) > 8
-        ) {
-          pointer.current.dragging = true;
-        }
-      }}
-      onPointerUp={(event) => {
-        if (event.button !== 0 || pointer.current.dragging || full || skipFull.current) {
-          skipFull.current = false;
-          return;
-        }
-        enterFullscreen();
-      }}
     >
       <span className="viewer-label">
         {full
           ? "ESC 退出全屏"
-          : filmPlaying
-            ? "FULL FILM"
-            : picked
+          : picked
             ? `${picked.label ?? picked.id} · ${picked.colorName ?? picked.type}`
-            : "3D SPACE · CAMERA PATH"}
+            : dual
+              ? "WORLD"
+              : "3D SPACE · CAMERA PATH"}
+        {!full && dual ? <span>WASD 移动 · QE 升降 · 单击选择拖拽</span> : null}
       </span>
-      {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
+      {dual ? (
+        <span className="viewer-label pov-label">
+          SHOT POV
+          <span>预览/播放只带动右镜</span>
+        </span>
+      ) : null}
+      <button
+        type="button"
+        className="viewer-fs"
+        onClick={toggleFullscreen}
+      >
+        {full ? "退出全屏" : "全屏"}
+      </button>
       {dual ? <i className="viewer-gutter" aria-hidden="true" /> : null}
       <div className={dual ? "viewer-split single-gl" : undefined} style={{ height: "100%" }}>
         <Canvas
           shadows
           camera={{ position: hero.position, fov: hero.fov }}
           gl={{ antialias: !splat, preserveDrawingBuffer: true }}
+          onPointerMissed={() => onSelectObject(null)}
         >
           <color attach="background" args={["#07080a"]} />
           <ambientLight intensity={0.55} />
@@ -551,9 +631,7 @@ export function SpaceViewer({
             dual={dual}
             onSelect={onSelectObject}
             onMove={(id, position, done) => onMoveObject(id, position, done)}
-            onPick={() => {
-              skipFull.current = true;
-            }}
+            onPick={() => undefined}
             onDragState={setOrbitLock}
             cloud={cloud}
             splat={splat}
@@ -567,7 +645,7 @@ export function SpaceViewer({
           ))}
           {shots.map((shot) => {
             const pos =
-              shot.shot_id === current?.shot_id && (previewing || filmPlaying)
+              shot.shot_id === current?.shot_id
                 ? camPos
                 : shot.path.start;
             return (
@@ -591,7 +669,7 @@ export function SpaceViewer({
             previewing={previewing || filmPlaying}
             camPos={camPos}
             lookTarget={target}
-            orbitTarget={lookAt}
+            lookAt={lookAt}
             orbitFov={previewing || filmPlaying ? shotFov(current) : hero.fov}
             povFov={shotFov(current)}
             dutch={current?.camera.angle === "dutch"}
@@ -604,10 +682,7 @@ export function SpaceViewer({
         type="button"
         className={timelineOpen ? "timeline-arrow open" : "timeline-arrow"}
         aria-label={timelineOpen ? "收起时间线" : "展开时间线"}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          skipFull.current = true;
-        }}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           onToggleTimeline();
@@ -618,10 +693,7 @@ export function SpaceViewer({
       {timelineOpen ? (
         <div
           className="film-timeline"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            skipFull.current = true;
-          }}
+          onPointerDown={(event) => event.stopPropagation()}
         >
           <button
             type="button"
@@ -638,13 +710,28 @@ export function SpaceViewer({
           <div
             className="film-track"
             aria-label="全片时间轴"
-            onClick={(event) => {
+            onPointerDown={(event) => {
               if (!shots.length) {
                 onEnsureShots();
                 return;
               }
+              draggingRef.current = true;
+              event.currentTarget.setPointerCapture(event.pointerId);
               const rect = event.currentTarget.getBoundingClientRect();
-              onSeekFilm(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)));
+              onSeekFilm(seekTFromClientX(event.clientX, rect.left, rect.width));
+            }}
+            onPointerMove={(event) => {
+              if (!draggingRef.current || !shots.length) {
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              onSeekFilm(seekTFromClientX(event.clientX, rect.left, rect.width));
+            }}
+            onPointerUp={() => {
+              draggingRef.current = false;
+            }}
+            onPointerCancel={() => {
+              draggingRef.current = false;
             }}
           >
             {shots.length === 0 ? (
@@ -653,18 +740,14 @@ export function SpaceViewer({
               </button>
             ) : (
               shots.map((shot) => (
-                <button
+                <span
                   key={shot.shot_id}
-                  type="button"
                   className={shot.shot_id === currentShotId ? "on" : ""}
                   style={{ flexGrow: shotDuration(shot), flexBasis: 0 }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPickShot(shot.shot_id);
-                  }}
                 >
                   {shot.title}
-                </button>
+                  <em>{shot.movement.duration.toFixed(1)}s</em>
+                </span>
               ))
             )}
             {shots.length ? (
@@ -672,7 +755,7 @@ export function SpaceViewer({
             ) : null}
           </div>
           <small>
-            {shots.length ? `${filmDuration(shots).toFixed(1)}s · 主视口与 POV 同步走片` : "时间线"}
+            {shots.length ? `${filmDuration(shots).toFixed(1)}s · 右视口走片 · 左视口自由看` : "时间线"}
           </small>
         </div>
       ) : null}

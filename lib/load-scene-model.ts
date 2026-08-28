@@ -295,6 +295,25 @@ export async function loadUploadedScene(
     space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS 原场景`;
     return { space, visual };
   }
+  if (gaussian) {
+    const url = URL.createObjectURL(file);
+    space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS 原场景（流式）`;
+    return {
+      space,
+      visual: {
+        mode: "spark",
+        geometry,
+        splat: {
+          url,
+          fileName: file.name,
+          paged: true,
+          zUp,
+          fit,
+          autoFit: true,
+        },
+      },
+    };
+  }
   const splatBytes = rgbCloudToSplat(
     geometry.getAttribute("position").array as Float32Array,
     geometry.getAttribute("color").array as Float32Array,

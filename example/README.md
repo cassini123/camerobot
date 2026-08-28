@@ -9,11 +9,13 @@ Local 3D reconstruction used as a space example for Yunjing / Camerobot.
 
 The Drive file is binary little-endian, **14,950,000** Gaussians (`x/y/z`, SH
 `f_dc_*` / `f_rest_*`, `opacity`, `scale_*`, `rot_*`). GitHub and Vercel cannot
-host 3.3 GB, so the app ships a sampled preview and the workbench MODELS list
-exposes **Example · model.ply**.
+host 3.3 GB. VirtuPath **Apply → Example · model.ply** streams
+`example/model.ply` from `/api/example-model` (Spark `url` + paged). The 2.6 MB
+file under `public/example/model.ply` is **not** used as the example scan.
 
 Keep the full `example/model.ply` on disk (or fetch it) for local work. It is
-gitignored.
+gitignored. On Vercel, set `EXAMPLE_PLY_URL` to a public 3.29GB PLY, then
+Redeploy.
 
 ## Fetch the full scan
 

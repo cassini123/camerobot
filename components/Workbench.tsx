@@ -12,10 +12,12 @@ import { sampleStillFrames } from "@/lib/still-frames";
 import { EXAMPLE_VISUAL_DNA, fallbackShots, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { applyPresetToShot, type CatalogPreset } from "@/lib/shot-catalog";
-import { filmDuration, filmTAtShot, sampleFilm } from "@/lib/film-timeline";
+import { filmDuration, filmTAtShot, keepCurrentShotId, sampleFilm } from "@/lib/film-timeline";
 import { deepMerge, setPath } from "@/lib/patch";
 import {
-  BUNDLED_EXAMPLE_PLY,
+  FULL_EXAMPLE_GAUSSIANS,
+  FULL_EXAMPLE_PLY_BYTES,
+  FULL_EXAMPLE_PLY_URL,
   exampleSpace,
   resolveSpaceObject,
   SCENE_MODEL_ACCEPT,
@@ -24,6 +26,7 @@ import {
 import { GENERATED_WORLDS } from "@/lib/generated-worlds";
 import { heroView } from "@/lib/view-frame";
 import { formatBytes } from "@/lib/ply-stream";
+import { IDENTITY_FIT } from "@/lib/point-cluster";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
 import Link from "next/link";
@@ -136,10 +139,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         shots: action.shots,
-        currentShotId:
-          action.shots.find((s) => s.shot_id === "shot_02")?.shot_id ??
-          action.shots[0]?.shot_id ??
-          null,
+        currentShotId: keepCurrentShotId(action.shots, state.currentShotId),
       };
     case "selectShot":
       return { ...state, currentShotId: action.id };
@@ -258,7 +258,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     {
       id: "example-ply",
       name: "Example · model.ply",
-      sizeLabel: "2.6 MB 预览",
+      sizeLabel: `${formatBytes(FULL_EXAMPLE_PLY_BYTES)} · ${FULL_EXAMPLE_GAUSSIANS.toLocaleString("en")} Gaussians`,
       source: "bundled",
       ready: false,
     },
@@ -320,7 +320,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }, [library]);
 
   const scene = state.story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
-  const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
+  const playheadShotId = filmPlaying
+    ? (sampleFilm(state.shots, filmT)?.shot.shot_id ?? state.currentShotId)
+    : state.currentShotId;
+  const currentShot = state.shots.find((s) => s.shot_id === playheadShotId);
   const selected = state.space.objects.find((obj) => obj.id === selectedId);
 
   function patchCurrentShot(partial: Record<string, unknown>) {
@@ -346,14 +349,18 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
 
   function applyCatalog(preset: CatalogPreset) {
     const seeded = seedShots();
-    const current = seeded.find((item) => item.shot_id === state.currentShotId) ?? seeded[0];
+    const playheadId = filmPlaying
+      ? (sampleFilm(seeded, filmT)?.shot.shot_id ?? state.currentShotId)
+      : state.currentShotId;
+    const current = seeded.find((item) => item.shot_id === playheadId) ?? seeded[0];
     const patched = applyPathToShot(applyPresetToShot(preset, current), state.space);
-    dispatch({
-      type: "shots",
-      shots: seeded.map((item) => (item.shot_id === patched.shot_id ? patched : item)),
-    });
+    const shots = seeded.map((item) => (item.shot_id === patched.shot_id ? patched : item));
+    dispatch({ type: "shots", shots });
+    dispatch({ type: "selectShot", id: patched.shot_id });
+    setFilmPlaying(false);
     setPreviewing(true);
     setPreviewT(0);
+    setFilmT(filmTAtShot(shots, patched.shot_id));
   }
 
   useEffect(() => {
@@ -495,7 +502,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           existingId === "example-ply"
             ? nextSplat
               ? "已载入 Example · model.ply（3DGS 原场景）。"
-              : "已载入 Example · model.ply（Drive 扫描的抽样预览）。"
+              : "已载入 Example · model.ply。"
             : nextSplat
               ? `上传成功：${file.name}。已用原场景 3DGS 渲染并加入左侧模型栏。`
               : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
@@ -513,25 +520,80 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }
 
   async function loadBundledExample(item: LibraryItem) {
-    dispatch({ type: "busy", busy: "载入 Example · model.ply…" });
-    setToast({ kind: "ok", text: "正在载入扫描预览…" });
+    dispatch({ type: "busy", busy: "载入 Example · model.ply（3.29GB）…" });
+    setToast({ kind: "ok", text: "正在流式载入 3DGS 原扫描…" });
     try {
-      const res = await fetch(BUNDLED_EXAMPLE_PLY);
-      if (!res.ok) {
-        throw new Error(`无法下载 ${BUNDLED_EXAMPLE_PLY}（${res.status}）`);
+      const meta = await fetch(`${FULL_EXAMPLE_PLY_URL}?meta=1`).then(async (res) => {
+        const json = (await res.json()) as {
+          complete?: boolean;
+          bytes?: number;
+          expectedBytes?: number;
+          hint?: string;
+        };
+        return json;
+      });
+      if (!meta.complete) {
+        await fetch(FULL_EXAMPLE_PLY_URL, { method: "POST" }).catch(() => undefined);
+        throw new Error(
+          meta.hint ||
+            `完整扫描尚未就绪（${formatBytes(meta.bytes ?? 0)} / ${formatBytes(meta.expectedBytes ?? FULL_EXAMPLE_PLY_BYTES)}）。本地运行 ./example/fetch-model.sh，或设置 EXAMPLE_PLY_URL。`,
+        );
       }
-      const blob = await res.blob();
-      const file = new File([blob], "model.ply", { type: "application/octet-stream" });
-      setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
-      await ingestModel(file, item.id);
+      const nextSplat: SceneSplat = {
+        url: FULL_EXAMPLE_PLY_URL,
+        fileName: "model.ply",
+        paged: true,
+        zUp: true,
+        autoFit: true,
+        fit: IDENTITY_FIT,
+      };
+      setLibrary((cur) =>
+        cur.map((it) =>
+          it.id === item.id
+            ? {
+                ...it,
+                ready: true,
+                splat: nextSplat,
+                space: {
+                  ...defaultSpace,
+                  kind: "upload",
+                  format: "ply",
+                  fileName: "model.ply",
+                  model: "model.ply",
+                  description: `Example · model.ply · ${formatBytes(FULL_EXAMPLE_PLY_BYTES)} · ${FULL_EXAMPLE_GAUSSIANS.toLocaleString("en")} Gaussians`,
+                },
+              }
+            : it,
+        ),
+      );
+      setCloud(null);
+      setSplat(nextSplat);
+      setActiveModelId(item.id);
+      dispatch({
+        type: "model",
+        name: "Example · model.ply",
+        space: {
+          ...defaultSpace,
+          kind: "upload",
+          format: "ply",
+          fileName: "model.ply",
+          model: "model.ply",
+        },
+      });
+      setToast({
+        kind: "ok",
+        text: "已载入 Example · model.ply（3.29GB 3DGS 原场景）。",
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "预览载入失败";
+      const message = error instanceof Error ? error.message : "扫描载入失败";
       setLibrary((cur) =>
         cur.map((it) => (it.id === item.id ? { ...it, ready: false, error: message } : it)),
       );
       dispatch({ type: "busy", busy: null });
       setToast({ kind: "err", text: message });
+      return;
     }
+    dispatch({ type: "busy", busy: null });
   }
 
   async function loadRemoteModel(item: LibraryItem) {
@@ -898,7 +960,11 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
               return (
                 <div
                   key={item.scene_id}
-                  className={item.scene_id === scene.scene_id ? "scene active" : "scene"}
+                  className={
+                    item.scene_id === scene.scene_id
+                      ? "scene active gemini-glow"
+                      : "scene"
+                  }
                   onClick={() => dispatch({ type: "scene", id: item.scene_id })}
                 >
                   <div className="scene-head">
@@ -977,7 +1043,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             {library.map((item) => (
               <div
                 key={item.id}
-                className={item.id === activeModelId ? "model-lib-item on" : "model-lib-item"}
+                className={
+                  item.id === activeModelId ? "model-lib-item on gemini-glow" : "model-lib-item"
+                }
               >
                 <button type="button" className="model-lib-name" onClick={() => applyLibrary(item)}>
                   {item.previewUrl ? (
@@ -1038,13 +1106,13 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           space={state.space}
           viewKey={activeModelId}
           shots={state.shots}
-          currentShotId={
-            filmPlaying
-              ? (sampleFilm(state.shots, filmT)?.shot.shot_id ?? state.currentShotId)
-              : state.currentShotId
-          }
+          currentShotId={playheadShotId}
           previewing={filmPlaying || previewing}
-          previewT={filmPlaying ? (sampleFilm(state.shots, filmT)?.localT ?? 0) : previewT}
+          previewT={
+            filmPlaying || !previewing
+              ? (sampleFilm(state.shots, filmT)?.localT ?? previewT)
+              : previewT
+          }
           dual={dual}
           selectedId={selectedId}
           cloud={cloud}
@@ -1058,17 +1126,12 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             setPreviewing(false);
             setFilmPlaying((v) => !v);
           }}
-          onPickShot={(id) => {
-            setFilmPlaying(false);
-            dispatch({ type: "selectShot", id });
-            setPreviewT(0);
-            setFilmT(filmTAtShot(state.shots, id));
-          }}
           onSeekFilm={(t) => {
+            const shots = seedShots();
             setFilmT(t);
-            const duration = filmDuration(state.shots) * 1000;
+            const duration = filmDuration(shots) * 1000;
             filmOriginRef.current = performance.now() - t * duration;
-            const hit = sampleFilm(state.shots, t);
+            const hit = sampleFilm(shots, t);
             if (hit) {
               dispatch({ type: "selectShot", id: hit.shot.shot_id });
               setPreviewT(hit.localT);
@@ -1090,12 +1153,13 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
 
         <ShotBoard
           shots={state.shots}
-          currentShotId={state.currentShotId}
+          currentShotId={playheadShotId}
           onSelectShot={(id) => {
             setFilmPlaying(false);
             dispatch({ type: "selectShot", id });
-            setPreviewing(false);
+            setPreviewing(true);
             setPreviewT(0);
+            setFilmT(filmTAtShot(state.shots, id));
           }}
           onPreset={(preset) => applyCatalog(preset)}
         />
@@ -1146,7 +1210,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         </section>
       ) : null}
 
-      <div className="model-dock sky-glass">
+      <DraggablePanel
+        className="model-dock sky-glass"
+        ignore=".panel-x, .model-menu, input"
+      >
         <input
           ref={modelInputRef}
           type="file"
@@ -1179,6 +1246,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         </button>
         {modelOpen ? (
           <div className="model-menu" role="menu">
+            <button type="button" onClick={() => modelInputRef.current?.click()}>
+              + 上传模型
+              <small>{SCENE_MODEL_FORMATS}</small>
+            </button>
             <button
               type="button"
               className={state.space.kind === "upload" ? "" : "on"}
@@ -1187,13 +1258,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
               Example
               <small>当前预览厅堂</small>
             </button>
-            <button type="button" onClick={() => modelInputRef.current?.click()}>
-              + 上传模型
-              <small>{SCENE_MODEL_FORMATS}</small>
-            </button>
           </div>
         ) : null}
-      </div>
+      </DraggablePanel>
 
       <div className={timelineOpen ? "composer-dock timeline-up" : "composer-dock"}>
         {state.pending ? (

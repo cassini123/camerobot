@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { detectGenerateIntent } from "../lib/generate-intent";
-import { filmDuration, filmTAtShot, sampleFilm } from "../lib/film-timeline";
+import { filmDuration, filmTAtShot, keepCurrentShotId, sampleFilm, seekTFromClientX } from "../lib/film-timeline";
 import { searchShotBoard, SHOT_PRESETS, applyPresetToShot } from "../lib/shot-catalog";
+import { EXPLORE_FEED, MODEL_FORMATS } from "../lib/library-explore";
 import type { Shot } from "../lib/types";
 
 function shot(id: string, duration: number, type: string): Shot {
@@ -34,6 +35,36 @@ describe("generate intent", () => {
   });
 });
 
+describe("generate job copy", () => {
+  it("surfaces failure reason and done copy", async () => {
+    const { jobHeadline, GENERATE_FAIL } = await import("../lib/generate-job");
+    expect(GENERATE_FAIL.has("FAILED")).toBe(true);
+    expect(
+      jobHeadline({
+        id: "1",
+        kind: "world",
+        prompt: "hall",
+        status: "failed",
+        phase: "x",
+        error: "世界生成失败（TIMEOUT）",
+        minimized: true,
+        createdAt: 0,
+      }),
+    ).toBe("世界生成失败（TIMEOUT）");
+    expect(
+      jobHeadline({
+        id: "1",
+        kind: "world",
+        prompt: "hall",
+        status: "done",
+        phase: "ok",
+        minimized: true,
+        createdAt: 0,
+      }),
+    ).toBe("已加入 Library");
+  });
+});
+
 describe("film timeline", () => {
   it("walks across shots by duration", () => {
     const shots = [shot("a", 2, "STATIC"), shot("b", 2, "ORBIT")];
@@ -41,6 +72,18 @@ describe("film timeline", () => {
     expect(sampleFilm(shots, 0.25)?.shot.shot_id).toBe("a");
     expect(sampleFilm(shots, 0.75)?.shot.shot_id).toBe("b");
     expect(filmTAtShot(shots, "b")).toBe(0.5);
+  });
+
+  it("keeps the selected shot when the list is rewritten", () => {
+    const shots = [shot("shot_01", 2, "STATIC"), shot("shot_02", 5, "ORBIT")];
+    expect(keepCurrentShotId(shots, "shot_01")).toBe("shot_01");
+    expect(keepCurrentShotId(shots, "missing")).toBe("shot_02");
+  });
+
+  it("maps pointer x onto the film", () => {
+    expect(seekTFromClientX(25, 0, 100)).toBe(0.25);
+    expect(seekTFromClientX(-10, 0, 100)).toBe(0);
+    expect(seekTFromClientX(200, 0, 100)).toBe(1);
   });
 });
 
@@ -64,11 +107,24 @@ describe("shot board search", () => {
     expect(ids).not.toContain("ms");
   });
 
-  it("applies look and fisheye immediately", () => {
-    const base = shot("a", 2, "STATIC");
+  it("applies look, fisheye, dutch and crash immediately", () => {
+    const base = shot("a", 6, "STATIC");
     const fisheye = SHOT_PRESETS.find((item) => item.id === "fisheye")!;
     const soft = SHOT_PRESETS.find((item) => item.id === "black_soft")!;
+    const dutch = SHOT_PRESETS.find((item) => item.id === "dutch")!;
+    const crash = SHOT_PRESETS.find((item) => item.id === "crash")!;
     expect(applyPresetToShot(fisheye, base).lensStyle).toBe("fisheye");
     expect(applyPresetToShot(soft, base).look).toBe("black_soft");
+    expect(applyPresetToShot(dutch, base).camera.angle).toBe("dutch");
+    expect(applyPresetToShot(crash, base).movement.duration).toBe(1.2);
+    expect(applyPresetToShot(crash, base).movement.type).toBe("DOLLY_IN");
+  });
+});
+
+describe("explore feed", () => {
+  it("ships eight clips and model download formats", () => {
+    expect(EXPLORE_FEED).toHaveLength(8);
+    expect(EXPLORE_FEED.every((item) => item.src.startsWith("/explore/"))).toBe(true);
+    expect(MODEL_FORMATS).toEqual(["plz", "ply", "usdz", "obj", "spz", "fbx"]);
   });
 });

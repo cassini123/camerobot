@@ -5,8 +5,13 @@ export const SCENE_MODEL_ACCEPT =
 
 export const SCENE_MODEL_FORMATS = "PLY · GLB · GLTF · SPLAT · KSPLAT · SPZ";
 
-/** Vercel-safe sampled preview of the 3.3GB Drive reconstruction. */
+/** Legacy 2.6MB RGB preview. Do not use for Apply — the scan is 3.29GB. */
 export const BUNDLED_EXAMPLE_PLY = "/example/model.ply";
+
+/** Full Drive reconstruction (gitignored). Streamed by `/api/example-model`. */
+export const FULL_EXAMPLE_PLY_URL = "/api/example-model";
+export const FULL_EXAMPLE_PLY_BYTES = 3_528_201_479;
+export const FULL_EXAMPLE_GAUSSIANS = 14_950_000;
 
 export function exampleSpace(base: SpaceModel): SpaceModel {
   return {
