@@ -662,12 +662,12 @@ export function SpaceViewer({
               />
             );
           })}
-          {current ? (
+          {splat || !current ? null : (
             <mesh position={current.path.target}>
               <sphereGeometry args={[0.18, 12, 12]} />
               <meshStandardMaterial color="#c45c4a" />
             </mesh>
-          ) : null}
+          )}
           {splat ? null : <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />}
           <DualViewport
             dual={dual}

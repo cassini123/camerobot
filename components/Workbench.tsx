@@ -632,10 +632,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     setSplat(nextSplat);
     dispatch({ type: "space", space: nextSpace });
     dispatch({ type: "model", name: item.name, space: nextSpace });
-    const remapped = (state.shots.length
-      ? state.shots
-      : fallbackShots(scene.scene_id, nextSpace)
-    ).map((shot) => applyPathToShot(shot, nextSpace));
+    const remapped = fallbackShots(scene.scene_id, nextSpace).map((shot) =>
+      applyPathToShot(shot, nextSpace),
+    );
     dispatch({ type: "shots", shots: remapped });
     setSelectedId(null);
     setActiveModelId(item.id);
@@ -684,10 +683,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     setSplat(item.splat ?? null);
     dispatch({ type: "space", space: nextSpace });
     dispatch({ type: "model", name: item.name, space: nextSpace });
-    const remapped = (state.shots.length
-      ? state.shots
-      : fallbackShots(scene.scene_id, nextSpace)
-    ).map((shot) => applyPathToShot(shot, nextSpace));
+    const remapped = fallbackShots(scene.scene_id, nextSpace).map((shot) =>
+      applyPathToShot(shot, nextSpace),
+    );
     dispatch({ type: "shots", shots: remapped });
     setSelectedId(nextSpace.objects.find((obj) => obj.type !== "ground")?.id ?? null);
     setActiveModelId(item.id);
