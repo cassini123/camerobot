@@ -183,11 +183,13 @@ export function downloadBlob(blob: Blob, filename: string) {
 
 function pickRecorderMime() {
   const types = [
+    "video/mp4;codecs=avc1",
+    "video/mp4;codecs=h264",
+    "video/mp4",
     "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
     "video/webm",
   ];
-  return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? "video/webm";
+  return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
 }
 
 function waitFrame() {
@@ -206,35 +208,76 @@ export async function exportCameraVideo(
   const fps = 24;
   const world = new OffscreenWorld(space, width, height);
   const canvas = world.canvas();
-  const stream = canvas.captureStream(fps);
-  const mime = pickRecorderMime();
-  const recorder = new MediaRecorder(stream, { mimeType: mime });
-  const chunks: BlobPart[] = [];
-  recorder.ondataavailable = (event) => {
-    if (event.data.size) {
-      chunks.push(event.data);
-    }
-  };
-  const stopped = new Promise<Blob>((resolve) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mime }));
-  });
-  recorder.start();
+  const dt = 1 / fps;
 
-  for (const shot of shots) {
-    const duration = Math.max(1, shot.movement.duration);
-    const frames = Math.max(1, Math.round(duration * fps));
-    onProgress?.(`${mode === "motion" ? "运动" : "预览"} ${shot.title}`);
-    for (let i = 0; i < frames; i += 1) {
-      world.renderShot(shot, frames === 1 ? 0 : i / (frames - 1), mode);
-      await waitFrame();
+  try {
+    const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality } = await import(
+      "mediabunny"
+    );
+    const target = new BufferTarget();
+    const output = new Output({
+      format: new Mp4OutputFormat(),
+      target,
+    });
+    const source = new CanvasSource(canvas, {
+      codec: "avc",
+      quality: new Quality("high"),
+    });
+    output.addVideoTrack(source);
+    await output.start();
+    let timestamp = 0;
+    for (const shot of shots) {
+      const duration = Math.max(1, shot.movement.duration);
+      const frames = Math.max(1, Math.round(duration * fps));
+      onProgress?.(`${mode === "motion" ? "运动" : "预览"} ${shot.title}`);
+      for (let i = 0; i < frames; i += 1) {
+        world.renderShot(shot, frames === 1 ? 0 : i / (frames - 1), mode);
+        await source.add(timestamp, dt);
+        timestamp += dt;
+        await waitFrame();
+      }
     }
+    await output.finalize();
+    const buffer = target.buffer;
+    if (!buffer) {
+      throw new Error("empty mp4");
+    }
+    downloadBlob(new Blob([buffer], { type: "video/mp4" }), filename.replace(/\.webm$/i, ".mp4"));
+    world.dispose();
+    return;
+  } catch {
+    const mime = pickRecorderMime();
+    if (!mime.includes("mp4")) {
+      world.dispose();
+      throw new Error("当前浏览器无法编码 MP4，请改用 Chrome / Edge 再导出");
+    }
+    const stream = canvas.captureStream(fps);
+    const recorder = new MediaRecorder(stream, { mimeType: mime });
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) {
+        chunks.push(event.data);
+      }
+    };
+    const stopped = new Promise<Blob>((resolve) => {
+      recorder.onstop = () => resolve(new Blob(chunks, { type: "video/mp4" }));
+    });
+    recorder.start();
+    for (const shot of shots) {
+      const duration = Math.max(1, shot.movement.duration);
+      const frames = Math.max(1, Math.round(duration * fps));
+      onProgress?.(`${mode === "motion" ? "运动" : "预览"} ${shot.title}`);
+      for (let i = 0; i < frames; i += 1) {
+        world.renderShot(shot, frames === 1 ? 0 : i / (frames - 1), mode);
+        await waitFrame();
+      }
+    }
+    recorder.stop();
+    stream.getTracks().forEach((track) => track.stop());
+    const blob = await stopped;
+    world.dispose();
+    downloadBlob(blob, filename.replace(/\.webm$/i, ".mp4"));
   }
-
-  recorder.stop();
-  stream.getTracks().forEach((track) => track.stop());
-  const blob = await stopped;
-  world.dispose();
-  downloadBlob(blob, filename);
 }
 
 export async function captureStillRows(
@@ -256,6 +299,20 @@ export async function captureStillRows(
   }
   world.dispose();
   return rows;
+}
+
+export async function exportStillsJpgs(
+  rows: Awaited<ReturnType<typeof captureStillRows>>,
+  filename: string,
+) {
+  const { zipStore } = await import("./zip-store");
+  const files = rows.flatMap((row) =>
+    row.frames.map((frame) => ({
+      name: `${row.shot.shot_id}_${frame.label}.jpg`,
+      data: dataUrlToBytes(frame.jpeg),
+    })),
+  );
+  downloadBlob(zipStore(files), filename.replace(/\.(xlsx|pdf)$/i, ".zip"));
 }
 
 export async function exportStillsExcel(

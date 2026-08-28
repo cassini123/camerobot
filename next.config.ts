@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["three"],
+  transpilePackages: ["three", "mediabunny"],
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,

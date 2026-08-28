@@ -13,6 +13,7 @@ import { EXAMPLE_VISUAL_DNA, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
 import { exampleSpace, resolveSpaceObject, SCENE_MODEL_ACCEPT, SCENE_MODEL_FORMATS } from "@/lib/space-objects";
+import { formatBytes } from "@/lib/ply-stream";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
 import type {
@@ -51,6 +52,20 @@ const FAQ = [
 ];
 
 type SceneAssets = { images: string[]; videos: string[] };
+
+type LibraryItem = {
+  id: string;
+  name: string;
+  sizeLabel: string;
+  source: "example" | "upload";
+  file?: File;
+  space?: SpaceModel;
+  geometry?: BufferGeometry | null;
+  ready: boolean;
+  error?: string;
+};
+
+type Toast = { kind: "ok" | "err"; text: string };
 
 type State = {
   currentSceneId: string;
@@ -202,6 +217,19 @@ export function Workbench() {
   const [selectedId, setSelectedId] = useState<string | null>("person_01");
   const [modelOpen, setModelOpen] = useState(false);
   const [cloud, setCloud] = useState<BufferGeometry | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [library, setLibrary] = useState<LibraryItem[]>([
+    {
+      id: "example",
+      name: "Example · 厅堂代理",
+      sizeLabel: "内置",
+      source: "example",
+      ready: true,
+      space: defaultSpace,
+      geometry: null,
+    },
+  ]);
+  const [activeModelId, setActiveModelId] = useState("example");
   const toneInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const finishIntro = useCallback(() => setIntroDone(true), []);
@@ -233,46 +261,123 @@ export function Workbench() {
     return () => cancelAnimationFrame(frame);
   }, [previewing, currentShot]);
 
-  async function ingestModel(file: File) {
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setToast(null), 5200);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  async function ingestModel(file: File, existingId?: string) {
+    const id = existingId ?? `${file.name}-${file.size}-${Date.now()}`;
+    if (!existingId) {
+      setLibrary((cur) => [
+        ...cur,
+        {
+          id,
+          name: file.name,
+          sizeLabel: formatBytes(file.size),
+          source: "upload",
+          file,
+          ready: false,
+        },
+      ]);
+    }
+    setToast({
+      kind: "ok",
+      text: `开始解析 ${file.name}（${formatBytes(file.size)}）。大文件只抽样读取，不会整包进内存。`,
+    });
     dispatch({ type: "busy", busy: `解析 ${file.name}…` });
     try {
       const { loadUploadedScene } = await import("@/lib/load-scene-model");
-      const { space, visual } = await loadUploadedScene(file);
-      setCloud(visual?.geometry ?? null);
-      dispatch({ type: "space", space });
-      dispatch({ type: "model", name: file.name, space });
-      setSelectedId(space.objects.find((obj) => obj.type !== "ground")?.id ?? null);
+      const { space, visual } = await loadUploadedScene(file, (_ratio, label) => {
+        dispatch({ type: "busy", busy: label });
+      });
+      let labeled = space;
       dispatch({ type: "busy", busy: "AI 解析物体与颜色…" });
-      const res = await fetch("/api/space/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description: space.description,
-          space,
-          clusters: space.objects.map((obj) => ({
-            id: obj.id,
-            type: obj.type,
-            position: obj.position,
-            size: obj.size,
-            color: obj.color,
-            colorName: obj.colorName,
-            label: obj.label,
-            aliases: obj.aliases,
-          })),
-        }),
-      });
-      const json = await res.json();
-      if (json.space?.objects) {
-        dispatch({ type: "space", space: json.space });
+      try {
+        const res = await fetch("/api/space/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            description: space.description,
+            space,
+            clusters: space.objects.map((obj) => ({
+              id: obj.id,
+              type: obj.type,
+              position: obj.position,
+              size: obj.size,
+              color: obj.color,
+              colorName: obj.colorName,
+              label: obj.label,
+              aliases: obj.aliases,
+            })),
+          }),
+        });
+        const json = await res.json();
+        if (json.space?.objects) {
+          labeled = json.space;
+        }
+      } catch {
+        // keep heuristic labels
       }
-    } catch (error) {
-      dispatch({
-        type: "busy",
-        busy: error instanceof Error ? error.message : "模型解析失败",
+      const geometry = visual?.geometry ?? null;
+      setLibrary((cur) =>
+        cur.map((item) =>
+          item.id === id
+            ? { ...item, ready: true, space: labeled, geometry, error: undefined }
+            : item,
+        ),
+      );
+      applyLibrary({
+        id,
+        name: file.name,
+        sizeLabel: formatBytes(file.size),
+        source: "upload",
+        file,
+        ready: true,
+        space: labeled,
+        geometry,
       });
+      setToast({
+        kind: "ok",
+        text: `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "模型解析失败";
+      setLibrary((cur) =>
+        cur.map((item) => (item.id === id ? { ...item, ready: false, error: message } : item)),
+      );
+      dispatch({ type: "busy", busy: null });
+      setToast({ kind: "err", text: `上传失败：${message}` });
       return;
     }
     dispatch({ type: "busy", busy: null });
+  }
+
+  function applyLibrary(item: LibraryItem) {
+    if (item.source === "example") {
+      restoreExample();
+      setActiveModelId("example");
+      setToast({ kind: "ok", text: "已 Apply Example 厅堂。" });
+      return;
+    }
+    if (!item.ready || !item.space) {
+      if (item.file && item.error) {
+        void ingestModel(item.file, item.id);
+      } else {
+        setToast({ kind: "err", text: item.error || "模型尚未解析完成" });
+      }
+      return;
+    }
+    setCloud(item.geometry ?? null);
+    dispatch({ type: "space", space: item.space });
+    dispatch({ type: "model", name: item.name, space: item.space });
+    setSelectedId(item.space.objects.find((obj) => obj.type !== "ground")?.id ?? null);
+    setActiveModelId(item.id);
+    setModelOpen(false);
+    setToast({ kind: "ok", text: `已 Apply ${item.name}` });
   }
 
   function restoreExample() {
@@ -281,6 +386,7 @@ export function Workbench() {
     dispatch({ type: "model", name: null, space: defaultSpace });
     setSelectedId("person_01");
     setModelOpen(false);
+    setActiveModelId("example");
   }
 
   async function analyzeReference(image?: string) {
@@ -414,9 +520,7 @@ export function Workbench() {
     URL.revokeObjectURL(url);
   }
 
-  async function runExport(
-    kind: "json" | "motion" | "preview" | "xlsx" | "pdf",
-  ) {
+  async function runExport(kind: "json" | "motion" | "preview" | "jpg") {
     setExportOpen(false);
     if (kind === "json") {
       exportJson();
@@ -430,7 +534,7 @@ export function Workbench() {
           state.space,
           state.shots,
           "motion",
-          "yunjing-camera-move.webm",
+          "yunjing-camera-move.mp4",
           (label) => dispatch({ type: "busy", busy: `导出运动视频 · ${label}` }),
         );
       } else if (kind === "preview") {
@@ -438,7 +542,7 @@ export function Workbench() {
           state.space,
           state.shots,
           "preview",
-          "yunjing-preview.webm",
+          "yunjing-preview.mp4",
           (label) => dispatch({ type: "busy", busy: `导出预览视频 · ${label}` }),
         );
       } else {
@@ -447,17 +551,15 @@ export function Workbench() {
           state.shots,
           sampleStillFrames,
         );
-        if (kind === "xlsx") {
-          await media.exportStillsExcel(rows, "yunjing-stills.xlsx");
-        } else {
-          await media.exportStillsPdf(rows, "yunjing-stills.pdf");
-        }
+        await media.exportStillsJpgs(rows, "yunjing-stills.zip");
       }
     } catch {
       dispatch({ type: "busy", busy: "导出失败，请重试" });
+      setToast({ kind: "err", text: "导出失败，请重试" });
       return;
     }
     dispatch({ type: "busy", busy: null });
+    setToast({ kind: "ok", text: kind === "jpg" ? "静帧 JPG 已下载" : "MP4 已下载" });
   }
 
   const dnaChips = useMemo(() => {
@@ -504,10 +606,9 @@ export function Workbench() {
             {exportOpen ? (
               <div className="export-menu" role="menu">
                 <button onClick={() => void runExport("json")}>JSON</button>
-                <button onClick={() => void runExport("motion")}>摄影机运动视频</button>
-                <button onClick={() => void runExport("preview")}>预览视频</button>
-                <button onClick={() => void runExport("xlsx")}>静帧 Excel</button>
-                <button onClick={() => void runExport("pdf")}>PDF</button>
+                <button onClick={() => void runExport("motion")}>摄影机运动视频 MP4</button>
+                <button onClick={() => void runExport("preview")}>预览视频 MP4</button>
+                <button onClick={() => void runExport("jpg")}>静帧 JPG</button>
               </div>
             ) : null}
           </div>
@@ -600,6 +701,31 @@ export function Workbench() {
               );
             })}
           </div>
+          <div className="col-h">MODELS</div>
+          <div className="model-lib">
+            {library.map((item) => (
+              <div
+                key={item.id}
+                className={item.id === activeModelId ? "model-lib-item on" : "model-lib-item"}
+              >
+                <button type="button" className="model-lib-name" onClick={() => applyLibrary(item)}>
+                  <b>{item.name}</b>
+                  <small>
+                    {item.sizeLabel}
+                    {item.ready ? " · 可 Apply" : item.error ? ` · ${item.error}` : " · 解析中"}
+                  </small>
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!item.ready && item.source === "upload" && !item.file}
+                  onClick={() => applyLibrary(item)}
+                >
+                  Apply
+                </button>
+              </div>
+            ))}
+          </div>
           <div className="lens-dock">
             {showKb ? (
               <aside className="kb">
@@ -686,8 +812,8 @@ export function Workbench() {
         currentShot={currentShot}
         selectedLabel={
           selected
-            ? `${selected.label ?? selected.id} · ${selected.colorName ?? selected.type} · 单击选中，右键拖动`
-            : "单击选中物体，右键拖动，两视口同步"
+            ? `${selected.label ?? selected.id} · ${selected.colorName ?? selected.type} · 双击选中后按住触控板拖动`
+            : "双击选中物体，再按住触控板拖动"
         }
         previewing={previewing}
         onClose={(id) => setActiveToolIds((cur) => cur.filter((item) => item !== id))}
@@ -707,6 +833,15 @@ export function Workbench() {
         }
         onLanguage={() => setShowKb((value) => !value)}
       />
+
+      {toast ? (
+        <div className={`toast sky-glass gemini-glow ${toast.kind === "err" ? "err" : "ok"}`}>
+          <button type="button" className="panel-x" onClick={() => setToast(null)}>
+            ×
+          </button>
+          {toast.text}
+        </div>
+      ) : null}
 
       {dnaChips.length ? (
         <section className="shot-pattern sky-glass" aria-label="shot pattern">

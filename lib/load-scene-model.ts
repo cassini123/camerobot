@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import {
   boundsFromObjects,
   clusterPointCloud,
@@ -8,6 +7,7 @@ import {
   draftsToObjects,
   fitPositions,
 } from "./point-cluster";
+import { formatBytes, samplePlyFile } from "./ply-stream";
 import type { SpaceModel } from "./types";
 
 export type SceneVisual = {
@@ -137,40 +137,35 @@ async function loadGltf(file: File): Promise<{ space: SpaceModel; visual: SceneV
 
 export async function loadUploadedScene(
   file: File,
+  onProgress?: (ratio: number, label: string) => void,
 ): Promise<{ space: SpaceModel; visual: SceneVisual }> {
   const ext = extOf(file.name);
+  onProgress?.(0.01, `读取 ${file.name}（${formatBytes(file.size)}）`);
   if (ext === "spz") {
     throw new Error("SPZ 需先转为 PLY 或 SPLAT 后再上传");
   }
   if (ext === "glb" || ext === "gltf") {
+    if (file.size > 400 * 1024 * 1024) {
+      throw new Error("GLB/GLTF 超过 400MB，请导出为 binary PLY 后再上传");
+    }
     return loadGltf(file);
   }
   if (ext === "splat" || ext === "ksplat") {
     if (ext === "ksplat") {
       throw new Error("KSPLAT 请导出为 PLY 或 SPLAT");
     }
+    if (file.size > 400 * 1024 * 1024) {
+      throw new Error("SPLAT 过大，请导出采样后的 PLY");
+    }
     const { positions, colors } = parseSplat(await file.arrayBuffer());
     const geometry = geometryFromArrays(positions, colors);
     return { space: spaceFromGeometry(file.name, ext, geometry), visual: { mode: "points", geometry } };
   }
-  const loader = new PLYLoader();
-  const geometry = loader.parse(await file.arrayBuffer());
-  const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
-  fitPositions(pos.array as Float32Array);
-  pos.needsUpdate = true;
-  const col = geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
-  if (!col) {
-    const colors = colorsFromHeight(pos.array as Float32Array);
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  } else {
-    const arr = col.array;
-    if (arr.length && arr[0] > 1.5) {
-      for (let i = 0; i < arr.length; i++) {
-        (arr as Float32Array)[i] = Number(arr[i]) / 255;
-      }
-    }
-    col.needsUpdate = true;
-  }
-  geometry.computeBoundingSphere();
-  return { space: spaceFromGeometry(file.name, ext || "ply", geometry), visual: { mode: "points", geometry } };
+  const sampled = await samplePlyFile(file, onProgress);
+  onProgress?.(0.92, "构建预览点云…");
+  const colors = sampled.colors.some(Boolean) ? sampled.colors : colorsFromHeight(sampled.positions);
+  const geometry = geometryFromArrays(sampled.positions, colors);
+  const space = spaceFromGeometry(file.name, ext || "ply", geometry);
+  space.description = `${file.name} · ${formatBytes(file.size)} · 从 ${sampled.total} 点采样 ${sampled.kept} 点`;
+  return { space, visual: { mode: "points", geometry } };
 }

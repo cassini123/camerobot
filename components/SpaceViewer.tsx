@@ -24,12 +24,14 @@ function MovableMesh({
   onSelect,
   onMove,
   onPick,
+  onDragState,
 }: {
   obj: SpaceObject;
   selected: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: Vec3, done?: boolean) => void;
   onPick: () => void;
+  onDragState: (dragging: boolean) => void;
 }) {
   const { camera, gl, raycaster } = useThree();
   const dragging = useRef(false);
@@ -62,6 +64,7 @@ function MovableMesh({
         return;
       }
       dragging.current = false;
+      onDragState(false);
       onMove(obj.id, latest.current, true);
     };
     window.addEventListener("pointermove", onMovePtr);
@@ -70,7 +73,7 @@ function MovableMesh({
       window.removeEventListener("pointermove", onMovePtr);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [camera, gl, raycaster, height, obj.id, onMove]);
+  }, [camera, gl, raycaster, height, obj.id, onMove, onDragState]);
 
   return (
     <mesh
@@ -79,11 +82,19 @@ function MovableMesh({
       onPointerDown={(event) => {
         event.stopPropagation();
         onPick();
-        onSelect(obj.id);
-        if (event.nativeEvent.button !== 2) {
+        if (event.nativeEvent.button !== 0) {
+          return;
+        }
+        if (!selected) {
           return;
         }
         dragging.current = true;
+        onDragState(true);
+      }}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        onPick();
+        onSelect(obj.id);
       }}
     >
       <boxGeometry args={obj.size || [1, 1, 1]} />
@@ -114,6 +125,7 @@ function HeritageHall({
   onMove,
   onPick,
   cloud,
+  onDragState,
 }: {
   space: SpaceModel;
   selectedId: string | null;
@@ -121,6 +133,7 @@ function HeritageHall({
   onMove: (id: string, position: Vec3, done?: boolean) => void;
   onPick: () => void;
   cloud: THREE.BufferGeometry | null;
+  onDragState: (dragging: boolean) => void;
 }) {
   const uploaded = space.kind === "upload";
   const span = Math.max(
@@ -163,6 +176,7 @@ function HeritageHall({
             onSelect={onSelect}
             onMove={onMove}
             onPick={onPick}
+            onDragState={onDragState}
           />
         ))}
     </group>
@@ -256,6 +270,7 @@ export function SpaceViewer({
   const pointer = useRef({ x: 0, y: 0, dragging: false });
   const skipFull = useRef(false);
   const [full, setFull] = useState(false);
+  const [orbitLock, setOrbitLock] = useState(false);
   const picked = space.objects.find((obj) => obj.id === selectedId);
   const lookAt = space.kind === "upload" ? [0, 1.2, 0] : [0, 1.2, 6];
 
@@ -349,6 +364,7 @@ export function SpaceViewer({
             onPick={() => {
               skipFull.current = true;
             }}
+            onDragState={setOrbitLock}
             cloud={cloud}
           />
           {shots.map((shot) => (
@@ -379,6 +395,7 @@ export function SpaceViewer({
           <OrbitControls
             makeDefault
             enableDamping
+            enabled={!orbitLock}
             enablePan={false}
             target={lookAt as Vec3}
           />
@@ -402,6 +419,7 @@ export function SpaceViewer({
               onPick={() => {
                 skipFull.current = true;
               }}
+              onDragState={setOrbitLock}
               cloud={cloud}
             />
             <PovRig
