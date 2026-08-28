@@ -6,11 +6,30 @@ import { GlobeCorner } from "./GlobeCorner";
 import { useLibrary } from "./LibraryProvider";
 import { useCallback, useEffect, useState } from "react";
 
+const INTRO_KEY = "yunjing-intro-played";
+
 export function ProductHub() {
   const { openGenerate } = useLibrary();
-  const [introDone, setIntroDone] = useState(false);
+  const [introDone, setIntroDone] = useState(true);
   const [aholoReady, setAholoReady] = useState(false);
-  const finishIntro = useCallback(() => setIntroDone(true), []);
+  const finishIntro = useCallback(() => {
+    try {
+      sessionStorage.setItem(INTRO_KEY, "1");
+    } catch {
+      /* private mode */
+    }
+    setIntroDone(true);
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(INTRO_KEY) !== "1") {
+        setIntroDone(false);
+      }
+    } catch {
+      setIntroDone(false);
+    }
+  }, []);
 
   useEffect(() => {
     void fetch("/api/generate")
@@ -22,20 +41,18 @@ export function ProductHub() {
   return (
     <div className="product-hub">
       <header className="product-top">
-        <Link className="brand" href="/yunjing">
-          <b>YUNJING</b>
-        </Link>
-        <Link className="product-mark" href="/yunjing/predesign">
-          start design
-        </Link>
+        <span />
+        <a className="product-mark" href="https://everec.coze.site">
+          everec
+        </a>
       </header>
 
       <GlobeCorner />
 
-      <Link className="hub-card hub-predesign" href="/yunjing/predesign">
-        <small>START DESIGN</small>
-        <strong>Story · Visual · Front</strong>
-      </Link>
+      <a className="hub-card hub-predesign" href="https://everec.coze.site">
+        <small>everec</small>
+        <strong>start design</strong>
+      </a>
 
       <Link className="hub-card hub-start" href="/yunjing/virtupath">
         <span className="hub-plus">+</span>
@@ -59,8 +76,8 @@ export function ProductHub() {
       </button>
 
       <Link className="hub-card hub-library" href="/yunjing/library">
-        <small>ASSETS</small>
-        <strong>Library</strong>
+        <small>LIBRARY</small>
+        <strong>Explore &amp; Assets</strong>
       </Link>
 
       {introDone ? null : <IntroSplash onDone={finishIntro} />}

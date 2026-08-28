@@ -12,6 +12,7 @@ export function GlobeCorner() {
         <span className="globe-ring" />
         <span className="globe-sketch" />
       </span>
+      <b className="globe-brand">YUNJING</b>
       <em>Game world</em>
     </Link>
   );

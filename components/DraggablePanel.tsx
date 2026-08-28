@@ -9,10 +9,12 @@ export function DraggablePanel({
   className,
   children,
   centered,
+  ignore = IGNORE,
 }: {
   className?: string;
   children: ReactNode;
   centered?: boolean;
+  ignore?: string;
 }) {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -25,7 +27,7 @@ export function DraggablePanel({
       return;
     }
     const target = event.target as HTMLElement;
-    if (target.closest(IGNORE)) {
+    if (ignore && target.closest(ignore)) {
       return;
     }
     origin.current = {

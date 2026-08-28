@@ -1048,7 +1048,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         </section>
       ) : null}
 
-      <div className="model-dock sky-glass">
+      <DraggablePanel
+        className="model-dock sky-glass"
+        ignore=".panel-x, .model-menu, input"
+      >
         <input
           ref={modelInputRef}
           type="file"
@@ -1095,7 +1098,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             </button>
           </div>
         ) : null}
-      </div>
+      </DraggablePanel>
 
       <div className={timelineOpen ? "composer-dock timeline-up" : "composer-dock"}>
         {state.pending ? (
