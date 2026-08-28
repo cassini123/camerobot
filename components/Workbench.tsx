@@ -22,6 +22,11 @@ import {
 import { formatBytes } from "@/lib/ply-stream";
 import { matchTools, type ToolId } from "@/lib/tools";
 import type { BufferGeometry } from "three";
+import Link from "next/link";
+import { ShotBoard } from "./ShotBoard";
+import { useLibrary } from "./LibraryProvider";
+import { detectGenerateIntent } from "@/lib/generate-intent";
+import { filmDuration, sampleFilm } from "@/lib/film-timeline";
 import type { SceneSplat } from "@/lib/scene-visual";
 import type {
   DirectorChange,
@@ -199,7 +204,8 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-export function Workbench() {
+export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
+  const { addFromFile, addFromDataUrl, openGenerate } = useLibrary();
   const [state, dispatch] = useReducer(reducer, {
     currentSceneId: "scene_02",
     story: storyData as Story,
@@ -219,7 +225,10 @@ export function Workbench() {
   const [previewT, setPreviewT] = useState(0);
   const [showKb, setShowKb] = useState(false);
   const [dual, setDual] = useState(true);
-  const [introDone, setIntroDone] = useState(false);
+  const [introDone, setIntroDone] = useState(skipIntro);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [filmPlaying, setFilmPlaying] = useState(false);
+  const [filmT, setFilmT] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
   const [activeToolIds, setActiveToolIds] = useState<ToolId[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>("person_01");
@@ -263,7 +272,7 @@ export function Workbench() {
   }
 
   useEffect(() => {
-    if (!previewing || !currentShot) {
+    if (!previewing || filmPlaying || !currentShot) {
       return;
     }
     let frame = 0;
@@ -275,7 +284,22 @@ export function Workbench() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [previewing, currentShot]);
+  }, [previewing, currentShot, filmPlaying]);
+
+  useEffect(() => {
+    if (!filmPlaying || state.shots.length === 0) {
+      return;
+    }
+    let frame = 0;
+    const started = performance.now();
+    const duration = filmDuration(state.shots) * 1000;
+    const tick = (now: number) => {
+      setFilmT(((now - started) % duration) / duration);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [filmPlaying, state.shots]);
 
   useEffect(() => {
     if (!toast) {
@@ -300,6 +324,7 @@ export function Workbench() {
         },
       ]);
     }
+    void addFromFile(file, { kind: "scene", source: existingId === "example-ply" ? "bundled" : "upload" });
     setToast({
       kind: "ok",
       text: `开始解析 ${file.name}（${formatBytes(file.size)}）。大文件只抽样读取，不会整包进内存。`,
@@ -483,6 +508,11 @@ export function Workbench() {
     if (!text) {
       return;
     }
+    const generate = detectGenerateIntent(text);
+    if (generate) {
+      openGenerate(generate.kind, generate.prompt);
+      return;
+    }
     const hit = resolveSpaceObject(state.space, text);
     const tools = matchTools(text);
     if (hit && !tools.includes("move")) {
@@ -635,7 +665,10 @@ export function Workbench() {
     <div className="workbench">
       <header className="hdr">
         <div className="brand">
-          <b>YUNJING</b>
+          <Link href="/yunjing">
+            <b>YUNJING</b>
+          </Link>
+          <span>VirtuPath</span>
         </div>
         <div className="hdr-actions">
           <button className="btn" onClick={() => setDual((v) => !v)}>
@@ -713,6 +746,11 @@ export function Workbench() {
                             kind: file.type.startsWith("video") ? "video" : "image",
                             dataUrl,
                           });
+                          void addFromDataUrl(
+                            file.name,
+                            dataUrl,
+                            file.type.startsWith("video") ? "video" : "image",
+                          );
                         }}
                       />
                     </label>
@@ -814,13 +852,30 @@ export function Workbench() {
         <SpaceViewer
           space={state.space}
           shots={state.shots}
-          currentShotId={state.currentShotId}
-          previewing={previewing}
-          previewT={previewT}
+          currentShotId={
+            filmPlaying
+              ? (sampleFilm(state.shots, filmT)?.shot.shot_id ?? state.currentShotId)
+              : state.currentShotId
+          }
+          previewing={filmPlaying || previewing}
+          previewT={filmPlaying ? (sampleFilm(state.shots, filmT)?.localT ?? 0) : previewT}
           dual={dual}
           selectedId={selectedId}
           cloud={cloud}
           splat={splat}
+          timelineOpen={timelineOpen}
+          filmPlaying={filmPlaying}
+          filmT={filmT}
+          onToggleTimeline={() => setTimelineOpen((v) => !v)}
+          onPlayFilm={() => {
+            setPreviewing(false);
+            setFilmPlaying((v) => !v);
+          }}
+          onPickShot={(id) => {
+            setFilmPlaying(false);
+            dispatch({ type: "selectShot", id });
+            setPreviewT(0);
+          }}
           onSelectObject={setSelectedId}
           onMoveObject={(id, position, done) =>
             dispatch({
@@ -832,39 +887,17 @@ export function Workbench() {
           }
         />
 
-        <aside className="col">
-          <div className="col-h">SHOTS</div>
-          {state.shots.length === 0 ? (
-            <div className="scene">
-              尚未生成镜头
-              <small>分析参考图后点击 Generate Shots</small>
-            </div>
-          ) : (
-            state.shots.map((shot) => (
-              <div
-                key={shot.shot_id}
-                className={shot.shot_id === state.currentShotId ? "shot active" : "shot"}
-                onClick={() => {
-                  dispatch({ type: "selectShot", id: shot.shot_id });
-                  setPreviewing(false);
-                  setPreviewT(0);
-                }}
-              >
-                {shot.title} · {shot.movement.type} · {shot.camera.lens}mm
-                <small>
-                  {shot.camera.height}m · {shot.movement.duration}s
-                </small>
-                <div className="match">
-                  MATCH {Math.round(shot.match.overall * 100)}%　构图{" "}
-                  {Math.round(shot.match.composition * 100)} 主体{" "}
-                  {Math.round(shot.match.subject * 100)} 机位{" "}
-                  {Math.round(shot.match.camera * 100)} 色彩{" "}
-                  {Math.round(shot.match.color * 100)}
-                </div>
-              </div>
-            ))
-          )}
-        </aside>
+        <ShotBoard
+          shots={state.shots}
+          currentShotId={state.currentShotId}
+          onSelectShot={(id) => {
+            setFilmPlaying(false);
+            dispatch({ type: "selectShot", id });
+            setPreviewing(false);
+            setPreviewT(0);
+          }}
+          onPreset={(instruction) => void runDirector(instruction)}
+        />
       </div>
 
       <ToolDock
@@ -961,7 +994,7 @@ export function Workbench() {
         ) : null}
       </div>
 
-      <div className="composer-dock">
+      <div className={timelineOpen ? "composer-dock timeline-up" : "composer-dock"}>
         {state.pending ? (
           <DraggablePanel>
           <div className="changes sky-glass">
@@ -1033,6 +1066,7 @@ export function Workbench() {
                     name: file.name,
                     dataUrl: await readFileAsDataUrl(file),
                   });
+                  void addFromFile(file, { kind: "image" });
                 }}
               />
             </label>

@@ -1,7 +1,7 @@
 "use client";
 
-import { Workbench } from "@/components/Workbench";
+import { ProductHub } from "@/components/ProductHub";
 
-export default function YunjingPage() {
-  return <Workbench />;
+export default function YunjingProductPage() {
+  return <ProductHub />;
 }

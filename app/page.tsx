@@ -12,9 +12,9 @@ export default function HomePage() {
       </p>
       <div className="cards">
         <Link className="card" href="/yunjing">
-          <b>打开工作台</b>
+          <b>打开云径 Product</b>
           <p style={{ color: "var(--muted)", marginTop: 8 }}>
-            Story → Space → Reference → Shots → Path → Director Prompt → Export
+            卡片首页 · Start Create 进入 VirtuPath · Library / Predesign / World
           </p>
         </Link>
         <a className="card" href="/camerobot/index.html">

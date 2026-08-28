@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["three", "mediabunny", "@sparkjsdev/spark"],
+  transpilePackages: [
+    "three",
+    "mediabunny",
+    "@sparkjsdev/spark",
+    "@manycore/aholo-sdk-core",
+    "@manycore/aholo-sdk-asset",
+    "@manycore/aholo-sdk-world",
+    "@manycore/aholo-sdk-lux3d",
+  ],
   webpack: (config) => {
     config.experiments = {
       ...config.experiments,

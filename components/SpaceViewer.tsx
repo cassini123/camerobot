@@ -7,6 +7,7 @@ import * as THREE from "three";
 import type { CameraPath, Shot, SpaceModel, SpaceObject, Vec3 } from "@/lib/types";
 import type { SceneSplat } from "@/lib/scene-visual";
 import { pathPoints, samplePath } from "@/lib/path-engine";
+import { filmDuration, shotDuration } from "@/lib/film-timeline";
 import { SplatCloud } from "./SplatCloud";
 
 const TYPE_COLOR: Record<string, string> = {
@@ -253,6 +254,12 @@ export function SpaceViewer({
   onMoveObject,
   cloud,
   splat,
+  timelineOpen,
+  filmPlaying,
+  filmT,
+  onToggleTimeline,
+  onPlayFilm,
+  onPickShot,
 }: {
   space: SpaceModel;
   shots: Shot[];
@@ -265,6 +272,12 @@ export function SpaceViewer({
   onMoveObject: (id: string, position: Vec3, done?: boolean) => void;
   cloud: THREE.BufferGeometry | null;
   splat: SceneSplat | null;
+  timelineOpen: boolean;
+  filmPlaying: boolean;
+  filmT: number;
+  onToggleTimeline: () => void;
+  onPlayFilm: () => void;
+  onPickShot: (id: string) => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const camPos = current
@@ -352,7 +365,9 @@ export function SpaceViewer({
       <span className="viewer-label">
         {full
           ? "ESC 退出全屏"
-          : picked
+          : filmPlaying
+            ? "FULL FILM"
+            : picked
             ? `${picked.label ?? picked.id} · ${picked.colorName ?? picked.type}`
             : "3D SPACE · CAMERA PATH"}
       </span>
@@ -439,6 +454,59 @@ export function SpaceViewer({
           </Canvas>
         ) : null}
       </div>
+      <button
+        type="button"
+        className={timelineOpen ? "timeline-arrow open" : "timeline-arrow"}
+        aria-label={timelineOpen ? "收起时间线" : "展开时间线"}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          skipFull.current = true;
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleTimeline();
+        }}
+      >
+        {timelineOpen ? "▾" : "▴"}
+      </button>
+      {timelineOpen ? (
+        <div
+          className="film-timeline"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            skipFull.current = true;
+          }}
+        >
+          <button type="button" className="btn primary" onClick={onPlayFilm}>
+            {filmPlaying ? "Stop" : "Play 全片"}
+          </button>
+          <div className="film-track" aria-label="全片时间轴">
+            {shots.length === 0 ? (
+              <span className="film-empty">先 Generate Shots</span>
+            ) : (
+              shots.map((shot) => (
+                <button
+                  key={shot.shot_id}
+                  type="button"
+                  className={shot.shot_id === currentShotId ? "on" : ""}
+                  style={{ flexGrow: shotDuration(shot), flexBasis: 0 }}
+                  onClick={() => onPickShot(shot.shot_id)}
+                >
+                  {shot.title}
+                </button>
+              ))
+            )}
+            {shots.length ? (
+              <i className="film-head" style={{ left: `${filmT * 100}%` }} />
+            ) : null}
+          </div>
+          <small>
+            {shots.length
+              ? `${filmDuration(shots).toFixed(1)}s · 播放时主视口走全片`
+              : ""}
+          </small>
+        </div>
+      ) : null}
     </div>
   );
 }
