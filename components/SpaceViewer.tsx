@@ -23,11 +23,13 @@ function MovableMesh({
   selected,
   onSelect,
   onMove,
+  onPick,
 }: {
   obj: SpaceObject;
   selected: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: Vec3, done?: boolean) => void;
+  onPick: () => void;
 }) {
   const { camera, gl, raycaster } = useThree();
   const dragging = useRef(false);
@@ -75,20 +77,33 @@ function MovableMesh({
       position={obj.position}
       castShadow
       onPointerDown={(event) => {
+        event.stopPropagation();
+        onPick();
+        onSelect(obj.id);
         if (event.nativeEvent.button !== 2) {
           return;
         }
-        event.stopPropagation();
         dragging.current = true;
-        onSelect(obj.id);
       }}
     >
       <boxGeometry args={obj.size || [1, 1, 1]} />
       <meshStandardMaterial
-        color={TYPE_COLOR[obj.type] || "#666"}
-        emissive={selected ? "#5a4630" : "#000000"}
+        color={obj.color || TYPE_COLOR[obj.type] || "#666"}
+        transparent
+        opacity={selected ? 0.55 : 0.28}
+        emissive={selected ? "#ffffff" : "#000000"}
+        emissiveIntensity={selected ? 0.18 : 0}
+        wireframe={false}
       />
     </mesh>
+  );
+}
+
+function PointCloud({ geometry }: { geometry: THREE.BufferGeometry }) {
+  return (
+    <points geometry={geometry}>
+      <pointsMaterial size={0.045} vertexColors sizeAttenuation />
+    </points>
   );
 }
 
@@ -97,26 +112,47 @@ function HeritageHall({
   selectedId,
   onSelect,
   onMove,
+  onPick,
+  cloud,
 }: {
   space: SpaceModel;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: Vec3, done?: boolean) => void;
+  onPick: () => void;
+  cloud: THREE.BufferGeometry | null;
 }) {
+  const uploaded = space.kind === "upload";
+  const span = Math.max(
+    space.bounds.max[0] - space.bounds.min[0],
+    space.bounds.max[2] - space.bounds.min[2],
+    16,
+  );
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 6]} receiveShadow>
-        <planeGeometry args={[28, 36]} />
-        <meshStandardMaterial color="#14161c" />
-      </mesh>
-      <mesh position={[-12.1, 3, 6]}>
-        <boxGeometry args={[0.28, 6, 32]} />
-        <meshStandardMaterial color="#2a241c" />
-      </mesh>
-      <mesh position={[12.1, 3, 6]}>
-        <boxGeometry args={[0.28, 6, 32]} />
-        <meshStandardMaterial color="#2a241c" />
-      </mesh>
+      {uploaded ? null : (
+        <>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 6]} receiveShadow>
+            <planeGeometry args={[28, 36]} />
+            <meshStandardMaterial color="#14161c" />
+          </mesh>
+          <mesh position={[-12.1, 3, 6]}>
+            <boxGeometry args={[0.28, 6, 32]} />
+            <meshStandardMaterial color="#2a241c" />
+          </mesh>
+          <mesh position={[12.1, 3, 6]}>
+            <boxGeometry args={[0.28, 6, 32]} />
+            <meshStandardMaterial color="#2a241c" />
+          </mesh>
+        </>
+      )}
+      {cloud ? <PointCloud geometry={cloud} /> : null}
+      {uploaded ? (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
+          <planeGeometry args={[span + 8, span + 8]} />
+          <meshStandardMaterial color="#101218" />
+        </mesh>
+      ) : null}
       {space.objects
         .filter((obj) => obj.type !== "ground")
         .map((obj) => (
@@ -126,6 +162,7 @@ function HeritageHall({
             selected={obj.id === selectedId}
             onSelect={onSelect}
             onMove={onMove}
+            onPick={onPick}
           />
         ))}
     </group>
@@ -196,6 +233,7 @@ export function SpaceViewer({
   selectedId,
   onSelectObject,
   onMoveObject,
+  cloud,
 }: {
   space: SpaceModel;
   shots: Shot[];
@@ -206,6 +244,7 @@ export function SpaceViewer({
   selectedId: string | null;
   onSelectObject: (id: string | null) => void;
   onMoveObject: (id: string, position: Vec3, done?: boolean) => void;
+  cloud: THREE.BufferGeometry | null;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const camPos = current
@@ -215,7 +254,10 @@ export function SpaceViewer({
     : ([0, 2, 8] as Vec3);
   const rootRef = useRef<HTMLDivElement>(null);
   const pointer = useRef({ x: 0, y: 0, dragging: false });
+  const skipFull = useRef(false);
   const [full, setFull] = useState(false);
+  const picked = space.objects.find((obj) => obj.id === selectedId);
+  const lookAt = space.kind === "upload" ? [0, 1.2, 0] : [0, 1.2, 6];
 
   useEffect(() => {
     const sync = () => {
@@ -279,14 +321,19 @@ export function SpaceViewer({
         }
       }}
       onPointerUp={(event) => {
-        if (event.button !== 0 || pointer.current.dragging || full) {
+        if (event.button !== 0 || pointer.current.dragging || full || skipFull.current) {
+          skipFull.current = false;
           return;
         }
         enterFullscreen();
       }}
     >
       <span className="viewer-label">
-        {full ? "ESC 退出全屏" : "3D SPACE · CAMERA PATH"}
+        {full
+          ? "ESC 退出全屏"
+          : picked
+            ? `${picked.label ?? picked.id} · ${picked.colorName ?? picked.type}`
+            : "3D SPACE · CAMERA PATH"}
       </span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
       <div className={dual ? "viewer-split" : undefined} style={{ height: "100%" }}>
@@ -299,6 +346,10 @@ export function SpaceViewer({
             selectedId={selectedId}
             onSelect={onSelectObject}
             onMove={(id, position, done) => onMoveObject(id, position, done)}
+            onPick={() => {
+              skipFull.current = true;
+            }}
+            cloud={cloud}
           />
           {shots.map((shot) => (
             <PathLine
@@ -329,7 +380,7 @@ export function SpaceViewer({
             makeDefault
             enableDamping
             enablePan={false}
-            target={[0, 1.2, 6]}
+            target={lookAt as Vec3}
           />
           <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />
         </Canvas>
@@ -348,6 +399,10 @@ export function SpaceViewer({
               selectedId={selectedId}
               onSelect={onSelectObject}
               onMove={(id, position, done) => onMoveObject(id, position, done)}
+              onPick={() => {
+                skipFull.current = true;
+              }}
+              cloud={cloud}
             />
             <PovRig
               position={camPos}

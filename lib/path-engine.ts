@@ -37,9 +37,15 @@ export function findObject(
   space: SpaceModel,
   idOrType: string,
 ): SpaceObject | undefined {
+  const key = idOrType.toLowerCase();
   return (
     space.objects.find((item) => item.id === idOrType) ??
-    space.objects.find((item) => item.type === idOrType)
+    space.objects.find((item) => item.type === idOrType) ??
+    space.objects.find((item) => item.label?.toLowerCase() === key) ??
+    space.objects.find((item) => (item.colorName ?? "").toLowerCase() === key) ??
+    space.objects.find((item) =>
+      (item.aliases ?? []).some((alias) => alias.toLowerCase() === key),
+    )
   );
 }
 

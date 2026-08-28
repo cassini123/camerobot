@@ -14,21 +14,24 @@ const TYPE_COLOR: Record<string, string> = {
 };
 
 function addHall(scene: THREE.Scene, space: SpaceModel) {
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(28, 36),
-    new THREE.MeshStandardMaterial({ color: "#14161c" }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(0, 0, 6);
-  scene.add(floor);
-
-  for (const x of [-12.1, 12.1]) {
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(0.28, 6, 32),
-      new THREE.MeshStandardMaterial({ color: "#2a241c" }),
+  const uploaded = space.kind === "upload";
+  if (!uploaded) {
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(28, 36),
+      new THREE.MeshStandardMaterial({ color: "#14161c" }),
     );
-    wall.position.set(x, 3, 6);
-    scene.add(wall);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0, 6);
+    scene.add(floor);
+
+    for (const x of [-12.1, 12.1]) {
+      const wall = new THREE.Mesh(
+        new THREE.BoxGeometry(0.28, 6, 32),
+        new THREE.MeshStandardMaterial({ color: "#2a241c" }),
+      );
+      wall.position.set(x, 3, 6);
+      scene.add(wall);
+    }
   }
 
   for (const obj of space.objects) {
@@ -37,7 +40,11 @@ function addHall(scene: THREE.Scene, space: SpaceModel) {
     }
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(...(obj.size || [1, 1, 1])),
-      new THREE.MeshStandardMaterial({ color: TYPE_COLOR[obj.type] || "#666" }),
+      new THREE.MeshStandardMaterial({
+        color: obj.color || TYPE_COLOR[obj.type] || "#666",
+        transparent: true,
+        opacity: uploaded ? 0.35 : 1,
+      }),
     );
     mesh.position.set(...obj.position);
     scene.add(mesh);

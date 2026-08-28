@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { heuristicDirector } from "@/lib/fallbacks";
 import { qingchengJson } from "@/lib/qingcheng";
-import type { DirectorResponse, Shot } from "@/lib/types";
+import type { DirectorResponse, Shot, SpaceModel } from "@/lib/types";
 
 const SYSTEM = `You are the director controller of YUNJING.
 
@@ -26,6 +26,7 @@ Allowed parameters:
 
 movement.type must be one of STATIC DOLLY_IN DOLLY_OUT TRACKING PAN ORBIT FOLLOW.
 Preserve spatial constraints. Preserve story intent.
+If the instruction names an object by label or color, set target.object_id to that catalog id.
 Numeric changes that represent speed, distance, height, duration, or lens MUST include slider metadata.`;
 
 export async function POST(request: Request) {
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
     scope?: string;
     instruction?: string;
     current_state?: Shot;
+    space?: SpaceModel;
   };
 
   if (!body.instruction || !body.current_state) {
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const fallback = heuristicDirector(body.instruction, body.current_state);
+  const fallback = heuristicDirector(body.instruction, body.current_state, body.space);
 
   try {
     const { data } = await qingchengJson({
@@ -58,6 +60,12 @@ export async function POST(request: Request) {
           target: body.current_state.target,
           color: body.current_state.color,
         },
+        catalog: (body.space?.objects ?? []).map((obj) => ({
+          id: obj.id,
+          type: obj.type,
+          label: obj.label,
+          colorName: obj.colorName,
+        })),
       }),
     });
     const parsed = data as DirectorResponse;

@@ -12,7 +12,9 @@ import { sampleStillFrames } from "@/lib/still-frames";
 import { EXAMPLE_VISUAL_DNA, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { deepMerge, setPath } from "@/lib/patch";
+import { exampleSpace, resolveSpaceObject, SCENE_MODEL_ACCEPT, SCENE_MODEL_FORMATS } from "@/lib/space-objects";
 import { matchTools, type ToolId } from "@/lib/tools";
+import type { BufferGeometry } from "three";
 import type {
   DirectorChange,
   DirectorResponse,
@@ -28,7 +30,7 @@ const SpaceViewer = dynamic(
   { ssr: false },
 );
 
-const defaultSpace = spaceData as SpaceModel;
+const defaultSpace = exampleSpace(spaceData as SpaceModel);
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -80,7 +82,7 @@ type Action =
   | { type: "editScene"; id: string; title?: string; description?: string }
   | { type: "sceneAsset"; id: string; kind: "image" | "video"; dataUrl: string }
   | { type: "tone"; name: string; dataUrl: string }
-  | { type: "model"; name: string | null };
+  | { type: "model"; name: string | null; space?: SpaceModel };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -164,7 +166,11 @@ function reducer(state: State, action: Action): State {
     case "tone":
       return { ...state, toneSkill: { name: action.name, dataUrl: action.dataUrl } };
     case "model":
-      return { ...state, modelName: action.name };
+      return {
+        ...state,
+        modelName: action.name,
+        space: action.space ?? (action.name ? state.space : defaultSpace),
+      };
     default:
       return state;
   }
@@ -194,6 +200,8 @@ export function Workbench() {
   const [exportOpen, setExportOpen] = useState(false);
   const [activeToolIds, setActiveToolIds] = useState<ToolId[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>("person_01");
+  const [modelOpen, setModelOpen] = useState(false);
+  const [cloud, setCloud] = useState<BufferGeometry | null>(null);
   const toneInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const finishIntro = useCallback(() => setIntroDone(true), []);
@@ -224,6 +232,56 @@ export function Workbench() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [previewing, currentShot]);
+
+  async function ingestModel(file: File) {
+    dispatch({ type: "busy", busy: `解析 ${file.name}…` });
+    try {
+      const { loadUploadedScene } = await import("@/lib/load-scene-model");
+      const { space, visual } = await loadUploadedScene(file);
+      setCloud(visual?.geometry ?? null);
+      dispatch({ type: "space", space });
+      dispatch({ type: "model", name: file.name, space });
+      setSelectedId(space.objects.find((obj) => obj.type !== "ground")?.id ?? null);
+      dispatch({ type: "busy", busy: "AI 解析物体与颜色…" });
+      const res = await fetch("/api/space/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: space.description,
+          space,
+          clusters: space.objects.map((obj) => ({
+            id: obj.id,
+            type: obj.type,
+            position: obj.position,
+            size: obj.size,
+            color: obj.color,
+            colorName: obj.colorName,
+            label: obj.label,
+            aliases: obj.aliases,
+          })),
+        }),
+      });
+      const json = await res.json();
+      if (json.space?.objects) {
+        dispatch({ type: "space", space: json.space });
+      }
+    } catch (error) {
+      dispatch({
+        type: "busy",
+        busy: error instanceof Error ? error.message : "模型解析失败",
+      });
+      return;
+    }
+    dispatch({ type: "busy", busy: null });
+  }
+
+  function restoreExample() {
+    setCloud(null);
+    dispatch({ type: "space", space: defaultSpace });
+    dispatch({ type: "model", name: null, space: defaultSpace });
+    setSelectedId("person_01");
+    setModelOpen(false);
+  }
 
   async function analyzeReference(image?: string) {
     dispatch({ type: "busy", busy: "分析参考图…" });
@@ -266,12 +324,20 @@ export function Workbench() {
     if (!text) {
       return;
     }
-    setActiveToolIds(matchTools(text));
+    const hit = resolveSpaceObject(state.space, text);
+    const tools = matchTools(text);
+    if (hit && !tools.includes("move")) {
+      tools.push("move");
+    }
+    setActiveToolIds(tools);
+    if (hit) {
+      setSelectedId(hit.id);
+    }
     if (!currentShot) {
       dispatch({ type: "busy", busy: "请先 Generate Shots 并选择镜头" });
       return;
     }
-    const local = heuristicDirector(instruction, currentShot);
+    const local = heuristicDirector(instruction, currentShot, state.space);
     dispatch({ type: "pending", pending: local });
     dispatch({ type: "busy", busy: "导演指令解析…" });
     try {
@@ -282,6 +348,7 @@ export function Workbench() {
           scope: currentShot.shot_id,
           instruction,
           current_state: currentShot,
+          space: state.space,
         }),
       });
       const json = (await res.json()) as DirectorResponse;
@@ -567,6 +634,7 @@ export function Workbench() {
           previewT={previewT}
           dual={dual}
           selectedId={selectedId}
+          cloud={cloud}
           onSelectObject={setSelectedId}
           onMoveObject={(id, position, done) =>
             dispatch({
@@ -618,8 +686,8 @@ export function Workbench() {
         currentShot={currentShot}
         selectedLabel={
           selected
-            ? `${selected.type} ${selected.id} · 右键拖动，两视口同步`
-            : "按住触控板右键点选并拖动物体"
+            ? `${selected.label ?? selected.id} · ${selected.colorName ?? selected.type} · 单击选中，右键拖动`
+            : "单击选中物体，右键拖动，两视口同步"
         }
         previewing={previewing}
         onClose={(id) => setActiveToolIds((cur) => cur.filter((item) => item !== id))}
@@ -653,29 +721,49 @@ export function Workbench() {
         <input
           ref={modelInputRef}
           type="file"
-          accept=".ply,.spz,.splat,.ksplat,.glb,.gltf,model/gltf-binary,model/gltf+json"
+          accept={SCENE_MODEL_ACCEPT}
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = "";
             if (file) {
-              dispatch({ type: "model", name: file.name });
+              setModelOpen(false);
+              void ingestModel(file);
             }
           }}
         />
         <button
           type="button"
           className="panel-x"
-          aria-label="清除模型"
-          onClick={() => dispatch({ type: "model", name: null })}
+          aria-label="关闭"
+          onClick={() => setModelOpen(false)}
         >
           ×
         </button>
-        <strong>场景模型</strong>
-        <span>{state.modelName ?? "上传 ply / spz / glb"}</span>
-        <button type="button" className="model-pick" onClick={() => modelInputRef.current?.click()}>
-          选择文件
+        <button type="button" className="model-pick" onClick={() => setModelOpen((v) => !v)}>
+          <strong>场景模型</strong>
+          <span>
+            {state.space.kind === "upload"
+              ? state.modelName
+              : "Example · 厅堂代理"}
+          </span>
         </button>
+        {modelOpen ? (
+          <div className="model-menu" role="menu">
+            <button
+              type="button"
+              className={state.space.kind === "upload" ? "" : "on"}
+              onClick={restoreExample}
+            >
+              Example
+              <small>当前预览厅堂</small>
+            </button>
+            <button type="button" onClick={() => modelInputRef.current?.click()}>
+              + 上传模型
+              <small>{SCENE_MODEL_FORMATS}</small>
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="composer-dock">
@@ -758,7 +846,7 @@ export function Workbench() {
             ) : null}
             <textarea
               className="prompt"
-              placeholder="用自然语言描述镜头与空间… 发送后弹出对应工具"
+              placeholder="用自然语言描述镜头与空间… 如：选中红色椅子，镜头靠近"
               value={state.instruction}
               rows={1}
               onChange={(e) => dispatch({ type: "instruction", text: e.target.value })}

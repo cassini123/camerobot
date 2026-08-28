@@ -1,4 +1,5 @@
-import type { DirectorResponse, Shot, SpaceModel, VisualDNA } from "./types";
+import type { DirectorResponse, Shot, SpaceModel, VisualDNA } from "@/lib/types";
+import { resolveSpaceObject } from "./space-objects";
 import { applyPathToShot } from "./path-engine";
 
 export const EXAMPLE_VISUAL_DNA: VisualDNA = {
@@ -172,6 +173,7 @@ export function fallbackShots(
 export function heuristicDirector(
   instruction: string,
   shot: Shot,
+  space?: SpaceModel,
 ): DirectorResponse {
   const text = instruction.toLowerCase();
   const patch: Record<string, unknown> = {};
@@ -288,6 +290,16 @@ export function heuristicDirector(
   } else if (/强化人物/.test(text) || (/人物/.test(text) && /强化|靠近|跟/.test(text))) {
     patch.target = { type: "person", object_id: "person_01" };
     setChange("target", "Target", shot.target.type, "person");
+  }
+
+  const mentioned = space ? resolveSpaceObject(space, instruction) : undefined;
+  if (mentioned) {
+    patch.target = {
+      type: mentioned.type,
+      object_id: mentioned.id,
+      position: mentioned.position,
+    };
+    setChange("target", "Target", shot.target.object_id, mentioned.label || mentioned.id);
   }
 
   if (changes.length === 0) {

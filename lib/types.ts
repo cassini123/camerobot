@@ -43,6 +43,10 @@ export interface SpaceObject {
   position: Vec3;
   size?: Vec3;
   rotation?: Vec3;
+  color?: string;
+  colorName?: string;
+  label?: string;
+  aliases?: string[];
 }
 
 export interface SpaceZone {
@@ -54,6 +58,9 @@ export interface SpaceZone {
 export interface SpaceModel {
   space_id: string;
   model: string;
+  kind?: "example" | "upload";
+  format?: string;
+  fileName?: string;
   description?: string;
   gps?: { lat: number; lng: number; alt: number };
   bounds: { min: Vec3; max: Vec3 };

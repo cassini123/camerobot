@@ -25,7 +25,7 @@ export const STUDIO_TOOLS: StudioTool[] = [
     id: "move",
     icon: "✥",
     label: "摆放",
-    keywords: ["移动", "摆", "物体", "拖", "右键", "放置", "人物走", "挪"],
+    keywords: ["移动", "摆", "物体", "拖", "右键", "放置", "人物走", "挪", "选中", "点选"],
     hint: "按住触控板右键拖动物体，两视口同步",
   },
   {
