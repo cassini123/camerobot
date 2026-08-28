@@ -156,6 +156,10 @@ export interface Shot {
     temperature: string;
     contrast: string;
   };
+  /** 柔焦：黑柔 / 白柔 */
+  look?: "none" | "black_soft" | "white_soft";
+  lensStyle?: "normal" | "fisheye";
+  handheld?: boolean;
 }
 
 export interface DirectorChange {

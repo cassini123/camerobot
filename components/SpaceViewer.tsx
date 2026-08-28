@@ -21,9 +21,22 @@ const TYPE_COLOR: Record<string, string> = {
   object: "#6b5c7a",
 };
 
+const SPLIT = 0.62;
+
+function shotFov(shot: Shot | undefined): number {
+  if (!shot) {
+    return 42;
+  }
+  if (shot.lensStyle === "fisheye" || shot.camera.lens <= 14) {
+    return 148;
+  }
+  return Math.max(18, 70 - shot.camera.lens * 0.4);
+}
+
 function MovableMesh({
   obj,
   selected,
+  dual,
   onSelect,
   onMove,
   onPick,
@@ -31,6 +44,7 @@ function MovableMesh({
 }: {
   obj: SpaceObject;
   selected: boolean;
+  dual: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: Vec3, done?: boolean) => void;
   onPick: () => void;
@@ -49,8 +63,9 @@ function MovableMesh({
         return;
       }
       const rect = canvas.getBoundingClientRect();
+      const width = dual ? rect.width * SPLIT : rect.width;
       const ndc = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        ((event.clientX - rect.left) / Math.max(1, width)) * 2 - 1,
         -((event.clientY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(ndc, camera);
@@ -76,7 +91,7 @@ function MovableMesh({
       window.removeEventListener("pointermove", onMovePtr);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [camera, gl, raycaster, height, obj.id, onMove, onDragState]);
+  }, [camera, gl, raycaster, height, obj.id, onMove, onDragState, dual]);
 
   return (
     <mesh
@@ -124,6 +139,7 @@ function PointCloud({ geometry }: { geometry: THREE.BufferGeometry }) {
 function HeritageHall({
   space,
   selectedId,
+  dual,
   onSelect,
   onMove,
   onPick,
@@ -133,6 +149,7 @@ function HeritageHall({
 }: {
   space: SpaceModel;
   selectedId: string | null;
+  dual: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, position: Vec3, done?: boolean) => void;
   onPick: () => void;
@@ -146,6 +163,11 @@ function HeritageHall({
     space.bounds.max[2] - space.bounds.min[2],
     16,
   );
+  const [splatFailed, setSplatFailed] = useState(false);
+  useEffect(() => {
+    setSplatFailed(false);
+  }, [splat]);
+  const showPoints = Boolean(cloud) && (!splat || splatFailed);
   return (
     <group>
       {uploaded ? null : (
@@ -164,7 +186,14 @@ function HeritageHall({
           </mesh>
         </>
       )}
-      {splat ? <SplatCloud splat={splat} /> : cloud ? <PointCloud geometry={cloud} /> : null}
+      {splat ? (
+        <SplatCloud
+          splat={splat}
+          onReady={() => undefined}
+          onError={() => setSplatFailed(true)}
+        />
+      ) : null}
+      {showPoints && cloud ? <PointCloud geometry={cloud} /> : null}
       {uploaded ? (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow>
           <planeGeometry args={[span + 8, span + 8]} />
@@ -177,6 +206,7 @@ function HeritageHall({
           <MovableMesh
             key={obj.id}
             obj={obj}
+            dual={dual}
             selected={obj.id === selectedId}
             onSelect={onSelect}
             onMove={onMove}
@@ -229,17 +259,111 @@ function CameraGizmo({
   );
 }
 
-function PovRig({ position, target, fov }: { position: Vec3; target: Vec3; fov: number }) {
-  const camera = useThree((s) => s.camera);
-  useFrame(() => {
-    camera.position.set(position[0], position[1], position[2]);
-    if ("fov" in camera) {
-      (camera as typeof camera & { fov: number }).fov = fov;
-      camera.updateProjectionMatrix();
+function DualViewport({
+  dual,
+  previewing,
+  camPos,
+  lookTarget,
+  orbitTarget,
+  orbitFov,
+  povFov,
+  dutch,
+  handheld,
+  orbitLock,
+}: {
+  dual: boolean;
+  previewing: boolean;
+  camPos: Vec3;
+  lookTarget: Vec3;
+  orbitTarget: Vec3;
+  orbitFov: number;
+  povFov: number;
+  dutch: boolean;
+  handheld: boolean;
+  orbitLock: boolean;
+}) {
+  const { gl, scene, camera, size } = useThree();
+  const pov = useMemo(() => new THREE.PerspectiveCamera(48, 1, 0.05, 4000), []);
+  const [rightHover, setRightHover] = useState(false);
+
+  useEffect(() => {
+    const el = gl.domElement;
+    const onMove = (event: PointerEvent) => {
+      if (!dual) {
+        setRightHover(false);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      setRightHover(event.clientX - rect.left > rect.width * SPLIT);
+    };
+    const onLeave = () => setRightHover(false);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerleave", onLeave);
+    return () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerleave", onLeave);
+    };
+  }, [gl, dual]);
+
+  useFrame(({ clock }) => {
+    const w = size.width;
+    const h = Math.max(1, size.height);
+    const split = dual ? Math.max(1, Math.floor(w * SPLIT)) : w;
+    const cam = camera as THREE.PerspectiveCamera;
+    const shake = handheld
+      ? Math.sin(clock.elapsedTime * 9.2) * 0.035
+      : 0;
+    const shakeY = handheld ? Math.cos(clock.elapsedTime * 7.1) * 0.018 : 0;
+    const px = camPos[0] + shake;
+    const py = camPos[1] + shakeY;
+    const pz = camPos[2];
+
+    if (previewing) {
+      cam.position.lerp(new THREE.Vector3(px, py, pz), 0.28);
+      cam.lookAt(lookTarget[0], lookTarget[1], lookTarget[2]);
+      if (dutch) {
+        cam.rotateZ(0.16);
+      }
+      cam.fov = orbitFov;
     }
-    camera.lookAt(target[0], target[1], target[2]);
-  });
-  return null;
+    cam.aspect = split / h;
+    cam.updateProjectionMatrix();
+
+    pov.fov = povFov;
+    pov.near = 0.05;
+    pov.far = 4000;
+    pov.aspect = dual ? Math.max(0.2, (w - split) / h) : 1;
+    pov.position.set(px, py, pz);
+    pov.lookAt(lookTarget[0], lookTarget[1], lookTarget[2]);
+    if (dutch) {
+      pov.rotateZ(0.16);
+    }
+    pov.updateProjectionMatrix();
+
+    gl.autoClear = true;
+    gl.setScissorTest(dual);
+    gl.setViewport(0, 0, split, h);
+    if (dual) {
+      gl.setScissor(0, 0, split, h);
+    }
+    gl.render(scene, cam);
+    if (dual) {
+      gl.setViewport(split, 0, w - split, h);
+      gl.setScissor(split, 0, w - split, h);
+      gl.render(scene, pov);
+    }
+    gl.setScissorTest(false);
+  }, 1);
+
+  return (
+    <OrbitControls
+      makeDefault
+      enableDamping
+      enabled={!orbitLock && !previewing && !rightHover}
+      enablePan={false}
+      target={orbitTarget}
+    />
+  );
 }
 
 export function SpaceViewer({
@@ -260,6 +384,8 @@ export function SpaceViewer({
   onToggleTimeline,
   onPlayFilm,
   onPickShot,
+  onSeekFilm,
+  onEnsureShots,
 }: {
   space: SpaceModel;
   shots: Shot[];
@@ -278,10 +404,12 @@ export function SpaceViewer({
   onToggleTimeline: () => void;
   onPlayFilm: () => void;
   onPickShot: (id: string) => void;
+  onSeekFilm: (t: number) => void;
+  onEnsureShots: () => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
-  const camPos = current
-    ? previewing
+  const camPos: Vec3 = current
+    ? previewing || filmPlaying
       ? samplePath(current.path, previewT)
       : current.path.start
     : ([0, 2, 8] as Vec3);
@@ -291,7 +419,17 @@ export function SpaceViewer({
   const [full, setFull] = useState(false);
   const [orbitLock, setOrbitLock] = useState(false);
   const picked = space.objects.find((obj) => obj.id === selectedId);
-  const lookAt = space.kind === "upload" ? [0, 1.2, 0] : [0, 1.2, 6];
+  const lookAt: Vec3 = space.kind === "upload" ? [0, 1.2, 0] : [0, 1.2, 6];
+  const target = current?.path.target ?? lookAt;
+  const lookClass =
+    current?.look === "black_soft"
+      ? "look-black-soft"
+      : current?.look === "white_soft"
+        ? "look-white-soft"
+        : "";
+  const gradeClass = current?.color?.temperature
+    ? `grade-${current.color.temperature.replace("_", "-")}`
+    : "";
 
   useEffect(() => {
     const sync = () => {
@@ -336,7 +474,7 @@ export function SpaceViewer({
   return (
     <div
       ref={rootRef}
-      className={full ? "viewer is-full" : "viewer"}
+      className={`viewer ${full ? "is-full" : ""} ${lookClass} ${gradeClass}`.trim()}
       onContextMenu={(event) => event.preventDefault()}
       onPointerDown={(event) => {
         if (event.button !== 0) {
@@ -372,14 +510,19 @@ export function SpaceViewer({
             : "3D SPACE · CAMERA PATH"}
       </span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
-      <div className={dual ? "viewer-split" : undefined} style={{ height: "100%" }}>
-        <Canvas shadows camera={{ position: [14, 9, -12], fov: 42 }} gl={{ antialias: !splat }}>
+      <div className={dual ? "viewer-split single-gl" : undefined} style={{ height: "100%" }}>
+        <Canvas
+          shadows
+          camera={{ position: [14, 9, -12], fov: 42 }}
+          gl={{ antialias: !splat, preserveDrawingBuffer: true }}
+        >
           <color attach="background" args={["#07080a"]} />
           <ambientLight intensity={0.55} />
           <directionalLight position={[8, 14, 4]} intensity={1.15} castShadow />
           <HeritageHall
             space={space}
             selectedId={selectedId}
+            dual={dual}
             onSelect={onSelectObject}
             onMove={(id, position, done) => onMoveObject(id, position, done)}
             onPick={() => {
@@ -398,7 +541,9 @@ export function SpaceViewer({
           ))}
           {shots.map((shot) => {
             const pos =
-              shot.shot_id === current?.shot_id && previewing ? camPos : shot.path.start;
+              shot.shot_id === current?.shot_id && (previewing || filmPlaying)
+                ? camPos
+                : shot.path.start;
             return (
               <CameraGizmo
                 key={`cam-${shot.shot_id}`}
@@ -414,45 +559,20 @@ export function SpaceViewer({
               <meshStandardMaterial color="#c45c4a" />
             </mesh>
           ) : null}
-          <OrbitControls
-            makeDefault
-            enableDamping
-            enabled={!orbitLock}
-            enablePan={false}
-            target={lookAt as Vec3}
-          />
           <gridHelper args={[30, 30, "#2a2d36", "#1a1d24"]} />
+          <DualViewport
+            dual={dual}
+            previewing={previewing || filmPlaying}
+            camPos={camPos}
+            lookTarget={target}
+            orbitTarget={lookAt}
+            orbitFov={previewing || filmPlaying ? shotFov(current) : 42}
+            povFov={shotFov(current)}
+            dutch={current?.camera.angle === "dutch"}
+            handheld={Boolean(current?.handheld)}
+            orbitLock={orbitLock}
+          />
         </Canvas>
-        {dual && current ? (
-          <Canvas
-            gl={{ antialias: !splat }}
-            camera={{
-              position: camPos,
-              fov: Math.max(18, 70 - current.camera.lens * 0.4),
-            }}
-          >
-            <color attach="background" args={["#10131a"]} />
-            <ambientLight intensity={0.65} />
-            <directionalLight position={[6, 10, 2]} intensity={1.15} />
-            <HeritageHall
-              space={space}
-              selectedId={selectedId}
-              onSelect={onSelectObject}
-              onMove={(id, position, done) => onMoveObject(id, position, done)}
-              onPick={() => {
-                skipFull.current = true;
-              }}
-              onDragState={setOrbitLock}
-              cloud={cloud}
-              splat={splat}
-            />
-            <PovRig
-              position={camPos}
-              target={current.path.target}
-              fov={Math.max(18, 70 - current.camera.lens * 0.4)}
-            />
-          </Canvas>
-        ) : null}
       </div>
       <button
         type="button"
@@ -477,12 +597,34 @@ export function SpaceViewer({
             skipFull.current = true;
           }}
         >
-          <button type="button" className="btn primary" onClick={onPlayFilm}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => {
+              if (!shots.length) {
+                onEnsureShots();
+              }
+              onPlayFilm();
+            }}
+          >
             {filmPlaying ? "Stop" : "Play 全片"}
           </button>
-          <div className="film-track" aria-label="全片时间轴">
+          <div
+            className="film-track"
+            aria-label="全片时间轴"
+            onClick={(event) => {
+              if (!shots.length) {
+                onEnsureShots();
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              onSeekFilm(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)));
+            }}
+          >
             {shots.length === 0 ? (
-              <span className="film-empty">先 Generate Shots</span>
+              <button type="button" className="film-empty" onClick={onEnsureShots}>
+                点击生成时间线
+              </button>
             ) : (
               shots.map((shot) => (
                 <button
@@ -490,7 +632,10 @@ export function SpaceViewer({
                   type="button"
                   className={shot.shot_id === currentShotId ? "on" : ""}
                   style={{ flexGrow: shotDuration(shot), flexBasis: 0 }}
-                  onClick={() => onPickShot(shot.shot_id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onPickShot(shot.shot_id);
+                  }}
                 >
                   {shot.title}
                 </button>
@@ -501,9 +646,7 @@ export function SpaceViewer({
             ) : null}
           </div>
           <small>
-            {shots.length
-              ? `${filmDuration(shots).toFixed(1)}s · 播放时主视口走全片`
-              : ""}
+            {shots.length ? `${filmDuration(shots).toFixed(1)}s · 主视口与 POV 同步走片` : "时间线"}
           </small>
         </div>
       ) : null}

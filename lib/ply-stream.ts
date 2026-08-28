@@ -109,12 +109,10 @@ export function sampleStride(vertexCount: number, target = TARGET_POINTS): numbe
 /** 3DGS PLY: SH DC + opacity/scale/rotation, not a colored point cloud. */
 export function isGaussianPly(properties: PlyProperty[]): boolean {
   const names = new Set(properties.map((prop) => prop.name));
-  if (!names.has("f_dc_0") && !names.has("opacity") && !names.has("scale_0")) {
-    return false;
-  }
   return (
     names.has("f_dc_0") ||
     names.has("f_dc_1") ||
+    names.has("f_rest_0") ||
     names.has("opacity") ||
     names.has("scale_0") ||
     names.has("rot_0")

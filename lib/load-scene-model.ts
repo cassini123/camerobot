@@ -168,7 +168,7 @@ async function sparkVisual(
   geometry: THREE.BufferGeometry | null,
   autoFit = false,
 ): Promise<SceneVisual> {
-  const fileBytes = await file.arrayBuffer();
+  const fileBytes = (await file.arrayBuffer()).slice(0);
   return {
     mode: "spark",
     geometry,
@@ -184,7 +184,7 @@ export async function loadUploadedScene(
   onProgress?.(0.01, `读取 ${file.name}（${formatBytes(file.size)}）`);
   if (ext === "spz") {
     if (file.size > SPARK_MAX_BYTES) {
-      throw new Error("SPZ 超过 400MB，请导出为较小的 SPZ 或 PLY");
+      throw new Error("SPZ 超过 800MB，请导出为较小的 SPZ 或 PLY");
     }
     onProgress?.(0.4, "载入 3DGS SPZ…");
     const visual = await sparkVisual(file, file.name, true, IDENTITY_FIT, null, true);
@@ -195,7 +195,7 @@ export async function loadUploadedScene(
   }
   if (ext === "glb" || ext === "gltf") {
     if (file.size > SPARK_MAX_BYTES) {
-      throw new Error("GLB/GLTF 超过 400MB，请导出为 binary PLY 后再上传");
+      throw new Error("GLB/GLTF 超过 800MB，请导出为 binary PLY 后再上传");
     }
     return loadGltf(file);
   }
@@ -226,7 +226,7 @@ export async function loadUploadedScene(
       visual: {
         mode: "spark",
         geometry,
-        splat: { fileBytes: bytes, fileName: file.name, zUp, fit },
+        splat: { fileBytes: bytes.slice(0), fileName: file.name, zUp, fit },
       },
     };
   }
@@ -244,10 +244,22 @@ export async function loadUploadedScene(
   const { geometry, fit } = geometryFromArrays(sampled.positions, colors);
   const space = spaceFromGeometry(file.name, ext || "ply", geometry);
   space.description = `${file.name} · ${formatBytes(file.size)} · 从 ${sampled.total} 点采样 ${sampled.kept} 点`;
-  if (gaussian && file.size <= SPARK_MAX_BYTES) {
+  const useSpark =
+    file.size <= SPARK_MAX_BYTES &&
+    (gaussian || sampled.total > 250_000 || ext === "ply");
+  if (useSpark && gaussian) {
     const visual = await sparkVisual(file, file.name, zUp, fit, geometry);
-    space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS splat`;
+    space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS 原场景`;
     return { space, visual };
+  }
+  if (useSpark && gaussian === false && sampled.total > 250_000) {
+    try {
+      const visual = await sparkVisual(file, file.name, zUp, fit, geometry);
+      space.description = `${file.name} · ${formatBytes(file.size)} · 尝试原场景 splat`;
+      return { space, visual };
+    } catch {
+      // fall through to points
+    }
   }
   return { space, visual: { mode: "points", geometry } };
 }

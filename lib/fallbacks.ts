@@ -249,17 +249,100 @@ export function heuristicDirector(
   }
 
   if (/广角|鱼眼/.test(text)) {
-    const lens = /鱼眼/.test(text) ? 14 : 24;
+    const fisheye = /鱼眼/.test(text);
+    const lens = fisheye ? 12 : 24;
     patch.camera = {
       ...(typeof patch.camera === "object" ? patch.camera : {}),
       lens,
     };
+    if (fisheye) {
+      patch.lensStyle = "fisheye";
+    }
     setChange("camera.lens", "Lens", shot.camera.lens, lens, {
       min: 12,
       max: 85,
       step: 1,
       unit: "mm",
     });
+  }
+
+  if (/黑柔/.test(text)) {
+    patch.look = "black_soft";
+    setChange("look", "Look", shot.look ?? "none", "black_soft");
+  } else if (/白柔/.test(text)) {
+    patch.look = "white_soft";
+    setChange("look", "Look", shot.look ?? "none", "white_soft");
+  } else if (/柔焦/.test(text)) {
+    patch.look = "black_soft";
+    setChange("look", "Look", shot.look ?? "none", "black_soft");
+  }
+
+  if (/荷兰|倾斜/.test(text)) {
+    patch.camera = {
+      ...(typeof patch.camera === "object" ? patch.camera : {}),
+      angle: "dutch",
+    };
+    setChange("camera.angle", "Camera", shot.camera.angle ?? "eye_level", "dutch");
+  }
+
+  if (/急推/.test(text)) {
+    patch.movement = {
+      ...(typeof patch.movement === "object" ? patch.movement : {}),
+      type: "DOLLY_IN",
+      duration: 1.2,
+      speed: 1.4,
+    };
+    setChange("movement.type", "Movement", shot.movement.type, "DOLLY_IN");
+    setChange("movement.duration", "Duration", shot.movement.duration, 1.2, {
+      min: 0.6,
+      max: 16,
+      step: 0.1,
+      unit: "s",
+    });
+  }
+
+  if (/手持/.test(text)) {
+    patch.handheld = true;
+    setChange("handheld", "Handheld", shot.handheld ? "on" : "off", "on");
+  }
+
+  if (/过肩/.test(text)) {
+    patch.kind = "follow";
+    patch.movement = {
+      ...(typeof patch.movement === "object" ? patch.movement : {}),
+      type: "FOLLOW",
+    };
+    setChange("kind", "Shot type", shot.kind, "follow");
+  } else if (/建立/.test(text)) {
+    patch.kind = "establishing";
+    patch.movement = {
+      ...(typeof patch.movement === "object" ? patch.movement : {}),
+      type: "DOLLY_IN",
+    };
+    setChange("kind", "Shot type", shot.kind, "establishing");
+  }
+
+  if (/暖/.test(text) && !/柔/.test(text)) {
+    patch.color = { temperature: "warm", contrast: shot.color?.contrast ?? "medium" };
+    setChange("color.temperature", "Color", shot.color?.temperature ?? "neutral", "warm");
+  } else if (/冷|青蓝/.test(text)) {
+    patch.color = { temperature: "cool", contrast: shot.color?.contrast ?? "medium" };
+    setChange("color.temperature", "Color", shot.color?.temperature ?? "neutral", "cool");
+  }
+
+  if (/高对比|对比/.test(text)) {
+    patch.color = {
+      temperature: (patch.color as { temperature?: string } | undefined)?.temperature
+        ?? shot.color?.temperature
+        ?? "warm",
+      contrast: "high",
+    };
+    setChange("color.contrast", "Contrast", shot.color?.contrast ?? "medium", "high");
+  }
+
+  if (/青橙/.test(text)) {
+    patch.color = { temperature: "teal_orange", contrast: "high" };
+    setChange("color.temperature", "Color", shot.color?.temperature ?? "neutral", "teal_orange");
   }
 
   if (/靠近|更近/.test(text)) {

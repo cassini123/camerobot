@@ -9,8 +9,10 @@ import storyData from "@/data/story_boktu.json";
 import spaceData from "@/data/space_heritage_hall.json";
 import { buildExportPayload } from "@/lib/export";
 import { sampleStillFrames } from "@/lib/still-frames";
-import { EXAMPLE_VISUAL_DNA, heuristicDirector } from "@/lib/fallbacks";
+import { EXAMPLE_VISUAL_DNA, fallbackShots, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
+import { applyPresetToShot, type CatalogPreset } from "@/lib/shot-catalog";
+import { filmDuration, filmTAtShot, sampleFilm } from "@/lib/film-timeline";
 import { deepMerge, setPath } from "@/lib/patch";
 import {
   BUNDLED_EXAMPLE_PLY,
@@ -26,7 +28,6 @@ import Link from "next/link";
 import { ShotBoard } from "./ShotBoard";
 import { useLibrary } from "./LibraryProvider";
 import { detectGenerateIntent } from "@/lib/generate-intent";
-import { filmDuration, sampleFilm } from "@/lib/film-timeline";
 import type { SceneSplat } from "@/lib/scene-visual";
 import type {
   DirectorChange,
@@ -226,9 +227,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   const [showKb, setShowKb] = useState(false);
   const [dual, setDual] = useState(true);
   const [introDone, setIntroDone] = useState(skipIntro);
-  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(true);
   const [filmPlaying, setFilmPlaying] = useState(false);
   const [filmT, setFilmT] = useState(0);
+  const filmOriginRef = useRef(0);
   const [exportOpen, setExportOpen] = useState(false);
   const [activeToolIds, setActiveToolIds] = useState<ToolId[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>("person_01");
@@ -271,6 +273,31 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     dispatch({ type: "apply", shot: applyPathToShot(merged, state.space) });
   }
 
+  function seedShots(): Shot[] {
+    if (state.shots.length) {
+      return state.shots;
+    }
+    const next = fallbackShots(
+      scene.scene_id,
+      state.space,
+      state.dna?.reference_id ?? "ref_001",
+    );
+    dispatch({ type: "shots", shots: next });
+    return next;
+  }
+
+  function applyCatalog(preset: CatalogPreset) {
+    const seeded = seedShots();
+    const current = seeded.find((item) => item.shot_id === state.currentShotId) ?? seeded[0];
+    const patched = applyPathToShot(applyPresetToShot(preset, current), state.space);
+    dispatch({
+      type: "shots",
+      shots: seeded.map((item) => (item.shot_id === patched.shot_id ? patched : item)),
+    });
+    setPreviewing(true);
+    setPreviewT(0);
+  }
+
   useEffect(() => {
     if (!previewing || filmPlaying || !currentShot) {
       return;
@@ -291,14 +318,16 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       return;
     }
     let frame = 0;
-    const started = performance.now();
     const duration = filmDuration(state.shots) * 1000;
+    filmOriginRef.current = performance.now() - filmT * duration;
     const tick = (now: number) => {
-      setFilmT(((now - started) % duration) / duration);
+      setFilmT(((now - filmOriginRef.current) % duration) / duration);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
+    // filmT is the seek offset at the moment play starts / shots change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filmPlaying, state.shots]);
 
   useEffect(() => {
@@ -388,10 +417,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         text:
           existingId === "example-ply"
             ? nextSplat
-              ? "已载入 Example · model.ply（3DGS splat）。"
+              ? "已载入 Example · model.ply（3DGS 原场景）。"
               : "已载入 Example · model.ply（Drive 扫描的抽样预览）。"
             : nextSplat
-              ? `上传成功：${file.name}。已用 3DGS 渲染并加入左侧模型栏。`
+              ? `上传成功：${file.name}。已用原场景 3DGS 渲染并加入左侧模型栏。`
               : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
       });
     } catch (error) {
@@ -447,11 +476,17 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       }
       return;
     }
+    const nextSpace = item.space;
     setCloud(item.geometry ?? null);
     setSplat(item.splat ?? null);
-    dispatch({ type: "space", space: item.space });
-    dispatch({ type: "model", name: item.name, space: item.space });
-    setSelectedId(item.space.objects.find((obj) => obj.type !== "ground")?.id ?? null);
+    dispatch({ type: "space", space: nextSpace });
+    dispatch({ type: "model", name: item.name, space: nextSpace });
+    const remapped = (state.shots.length
+      ? state.shots
+      : fallbackShots(scene.scene_id, nextSpace)
+    ).map((shot) => applyPathToShot(shot, nextSpace));
+    dispatch({ type: "shots", shots: remapped });
+    setSelectedId(nextSpace.objects.find((obj) => obj.type !== "ground")?.id ?? null);
     setActiveModelId(item.id);
     setModelOpen(false);
     setToast({ kind: "ok", text: `已 Apply ${item.name}` });
@@ -462,6 +497,12 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     setSplat(null);
     dispatch({ type: "space", space: defaultSpace });
     dispatch({ type: "model", name: null, space: defaultSpace });
+    if (state.shots.length) {
+      dispatch({
+        type: "shots",
+        shots: state.shots.map((shot) => applyPathToShot(shot, defaultSpace)),
+      });
+    }
     setSelectedId("person_01");
     setModelOpen(false);
     setActiveModelId("example");
@@ -495,10 +536,15 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       if (!Array.isArray(json.shots) || json.shots.length === 0) {
         throw new Error("empty shots");
       }
-      dispatch({ type: "shots", shots: json.shots });
+      dispatch({
+        type: "shots",
+        shots: json.shots.map((shot: Shot) => applyPathToShot(shot, state.space)),
+      });
     } catch {
-      dispatch({ type: "busy", busy: "生成失败，请重试" });
-      return;
+      dispatch({
+        type: "shots",
+        shots: fallbackShots(scene.scene_id, state.space, state.dna?.reference_id ?? "ref_001"),
+      });
     }
     dispatch({ type: "busy", busy: null });
   }
@@ -522,11 +568,15 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     if (hit) {
       setSelectedId(hit.id);
     }
-    if (!currentShot) {
-      dispatch({ type: "busy", busy: "请先 Generate Shots 并选择镜头" });
-      return;
+    const seeded =
+      currentShot && state.shots.length
+        ? state.shots
+        : fallbackShots(scene.scene_id, state.space, state.dna?.reference_id ?? "ref_001");
+    if (!state.shots.length) {
+      dispatch({ type: "shots", shots: seeded });
     }
-    const local = heuristicDirector(instruction, currentShot, state.space);
+    const shot = seeded.find((item) => item.shot_id === state.currentShotId) ?? seeded[0];
+    const local = heuristicDirector(instruction, shot, state.space);
     dispatch({ type: "pending", pending: local });
     dispatch({ type: "busy", busy: "导演指令解析…" });
     try {
@@ -534,9 +584,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          scope: currentShot.shot_id,
+          scope: shot.shot_id,
           instruction,
-          current_state: currentShot,
+          current_state: shot,
           space: state.space,
         }),
       });
@@ -868,6 +918,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           filmT={filmT}
           onToggleTimeline={() => setTimelineOpen((v) => !v)}
           onPlayFilm={() => {
+            seedShots();
             setPreviewing(false);
             setFilmPlaying((v) => !v);
           }}
@@ -875,6 +926,20 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             setFilmPlaying(false);
             dispatch({ type: "selectShot", id });
             setPreviewT(0);
+            setFilmT(filmTAtShot(state.shots, id));
+          }}
+          onSeekFilm={(t) => {
+            setFilmT(t);
+            const duration = filmDuration(state.shots) * 1000;
+            filmOriginRef.current = performance.now() - t * duration;
+            const hit = sampleFilm(state.shots, t);
+            if (hit) {
+              dispatch({ type: "selectShot", id: hit.shot.shot_id });
+              setPreviewT(hit.localT);
+            }
+          }}
+          onEnsureShots={() => {
+            seedShots();
           }}
           onSelectObject={setSelectedId}
           onMoveObject={(id, position, done) =>
@@ -896,7 +961,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             setPreviewing(false);
             setPreviewT(0);
           }}
-          onPreset={(instruction) => void runDirector(instruction)}
+          onPreset={(preset) => applyCatalog(preset)}
         />
       </div>
 
