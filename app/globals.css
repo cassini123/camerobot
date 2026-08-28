@@ -1218,32 +1218,32 @@ input[type="range"]::-moz-range-thumb {
 
 .hub-predesign {
   top: 72px;
-  right: 0;
-  transform: perspective(900px) rotateY(-32deg) translateX(46%);
+  right: -8px;
+  transform: perspective(700px) rotateY(-48deg) rotateZ(-4deg) translateX(22%);
   transform-origin: right center;
 }
 
 .hub-world {
-  left: 0;
+  left: -8px;
   bottom: 48px;
-  transform: perspective(900px) rotateY(32deg) translateX(-46%);
+  transform: perspective(700px) rotateY(48deg) rotateZ(4deg) translateX(-22%);
   transform-origin: left center;
 }
 
 .hub-library {
-  right: 0;
+  right: -8px;
   bottom: 48px;
-  transform: perspective(900px) rotateY(-32deg) translateX(46%);
+  transform: perspective(700px) rotateY(-48deg) rotateZ(4deg) translateX(22%);
   transform-origin: right center;
 }
 
 .hub-predesign:hover,
 .hub-library:hover {
-  transform: perspective(900px) rotateY(-18deg) translateX(28%);
+  transform: perspective(700px) rotateY(-28deg) rotateZ(-2deg) translateX(8%);
 }
 
 .hub-world:hover {
-  transform: perspective(900px) rotateY(18deg) translateX(-28%);
+  transform: perspective(700px) rotateY(28deg) rotateZ(2deg) translateX(-8%);
 }
 
 .globe-corner {
@@ -1417,12 +1417,13 @@ input[type="range"]::-moz-range-thumb {
 
 .friend i {
   position: absolute;
-  right: 6px;
-  top: 2px;
-  width: 8px;
-  height: 8px;
+  right: 4px;
+  top: 0;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  border: 1px solid #07080a;
+  border: 2px solid #07080a;
+  z-index: 2;
 }
 
 .friend i.online {
