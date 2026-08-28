@@ -9,6 +9,7 @@ export function GenerateModal({
   initialPrompt,
   onClose,
   addGenerated,
+  addFromFile,
 }: {
   kind: GenerateKind;
   initialPrompt: string;
@@ -20,6 +21,10 @@ export function GenerateModal({
     remoteUrl?: string;
     previewUrl?: string;
   }) => Promise<unknown>;
+  addFromFile: (
+    file: File,
+    options?: { kind?: AssetKind; source?: "generated"; prompt?: string },
+  ) => Promise<unknown>;
 }) {
   const [kind, setKind] = useState<GenerateKind>(initialKind);
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -70,10 +75,11 @@ export function GenerateModal({
         };
       });
       let remoteUrl: string | undefined;
+      let savedFile: File | undefined;
       if (created.configured && created.id) {
-        setBusy("生成中，完成后会写入素材库…");
-        for (let i = 0; i < 40; i++) {
-          await new Promise((r) => setTimeout(r, 4000));
+        setBusy("Aholo 生成中，场景完成后会写入素材库…");
+        for (let i = 0; i < 90; i++) {
+          await new Promise((r) => setTimeout(r, 5000));
           if (closed.current) {
             return;
           }
@@ -81,25 +87,64 @@ export function GenerateModal({
             `/api/generate?kind=${created.kind}&id=${encodeURIComponent(created.id)}`,
           ).then((res) => res.json());
           if (poll.status === "SUCCEEDED") {
-            remoteUrl = poll.downloadUrl;
+            remoteUrl = poll.downloadUrl as string | undefined;
+            const ext = (poll.format as string | undefined) || (kind === "world" ? "ply" : "glb");
+            if (remoteUrl) {
+              setBusy("正在下载生成结果…");
+              try {
+                const direct = await fetch(remoteUrl);
+                if (direct.ok) {
+                  savedFile = new File(
+                    [await direct.blob()],
+                    `${text.slice(0, 28)}.${ext}`,
+                    { type: "application/octet-stream" },
+                  );
+                }
+              } catch {
+                savedFile = undefined;
+              }
+              if (!savedFile) {
+                const proxied = await fetch(
+                  `/api/generate?kind=${created.kind}&id=${encodeURIComponent(created.id)}&file=1`,
+                );
+                if (proxied.ok) {
+                  savedFile = new File(
+                    [await proxied.blob()],
+                    `${text.slice(0, 28)}.${ext}`,
+                    { type: "application/octet-stream" },
+                  );
+                }
+              }
+            }
             break;
           }
           if (["FAILED", "CANCELED", "TIMEOUT", "REJECTED"].includes(poll.status)) {
             throw new Error(poll.error || "生成失败");
           }
-          setBusy(`生成中（${poll.status || "RUNNING"}）…`);
+          setBusy(`Aholo 生成中（${poll.status || "RUNNING"}）…`);
+        }
+        if (!remoteUrl && !savedFile) {
+          throw new Error("生成超时，请稍后在 Library 查看或重试");
         }
       } else {
         setBusy(created.message || "未配置 Aholo key，写入占位素材");
         await new Promise((r) => setTimeout(r, 600));
       }
-      await addGenerated({
-        name: text.slice(0, 42),
-        kind: kind === "world" ? "scene" : "object",
-        prompt: text,
-        remoteUrl,
-        previewUrl: image?.dataUrl,
-      });
+      if (savedFile) {
+        await addFromFile(savedFile, {
+          kind: kind === "world" ? "scene" : "object",
+          source: "generated",
+          prompt: text,
+        });
+      } else {
+        await addGenerated({
+          name: text.slice(0, 42),
+          kind: kind === "world" ? "scene" : "object",
+          prompt: text,
+          remoteUrl,
+          previewUrl: image?.dataUrl,
+        });
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败");
@@ -115,7 +160,9 @@ export function GenerateModal({
         </button>
         <p className="gen-kicker">SEMANTIC GENERATE</p>
         <h2>{kind === "world" ? "生成场景世界" : "生成物体"}</h2>
-        <p className="gen-note">完成后自动保存到 Library。场景走 World 3DGS，物体走 Lux3D GLB。</p>
+        <p className="gen-note">
+          已接 Aholo Labs（Asset 上传 + World 3DGS / Lux3D）。场景生成完成后自动入库，可在 VirtuPath Apply。
+        </p>
         <div className="gen-kinds">
           <button
             type="button"

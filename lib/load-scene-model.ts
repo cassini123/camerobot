@@ -94,6 +94,52 @@ function placeholderSpace(fileName: string, format: string, note: string): Space
   };
 }
 
+export function rgbCloudToSplat(
+  positions: Float32Array,
+  colors: Float32Array,
+): ArrayBuffer {
+  const n = Math.floor(positions.length / 3);
+  const buf = new ArrayBuffer(n * 32);
+  const view = new DataView(buf);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = positions[i * 3];
+    const y = positions[i * 3 + 1];
+    const z = positions[i * 3 + 2];
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+  }
+  const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.001);
+  const scale = (span / Math.max(8, Math.cbrt(n))) * 0.85;
+  for (let i = 0; i < n; i++) {
+    const o = i * 32;
+    view.setFloat32(o, positions[i * 3], true);
+    view.setFloat32(o + 4, positions[i * 3 + 1], true);
+    view.setFloat32(o + 8, positions[i * 3 + 2], true);
+    view.setFloat32(o + 12, scale, true);
+    view.setFloat32(o + 16, scale, true);
+    view.setFloat32(o + 20, scale, true);
+    view.setUint8(o + 24, Math.max(0, Math.min(255, Math.round(colors[i * 3] * 255))));
+    view.setUint8(o + 25, Math.max(0, Math.min(255, Math.round(colors[i * 3 + 1] * 255))));
+    view.setUint8(o + 26, Math.max(0, Math.min(255, Math.round(colors[i * 3 + 2] * 255))));
+    view.setUint8(o + 27, 255);
+    view.setUint8(o + 28, 0);
+    view.setUint8(o + 29, 0);
+    view.setUint8(o + 30, 0);
+    view.setUint8(o + 31, 255);
+  }
+  return buf;
+}
+
 function parseSplat(buffer: ArrayBuffer): { positions: Float32Array; colors: Float32Array } {
   if (buffer.byteLength < 32 || buffer.byteLength % 32 !== 0) {
     throw new Error("不是可解析的 splat 文件");
@@ -244,22 +290,26 @@ export async function loadUploadedScene(
   const { geometry, fit } = geometryFromArrays(sampled.positions, colors);
   const space = spaceFromGeometry(file.name, ext || "ply", geometry);
   space.description = `${file.name} · ${formatBytes(file.size)} · 从 ${sampled.total} 点采样 ${sampled.kept} 点`;
-  const useSpark =
-    file.size <= SPARK_MAX_BYTES &&
-    (gaussian || sampled.total > 250_000 || ext === "ply");
-  if (useSpark && gaussian) {
+  if (file.size <= SPARK_MAX_BYTES && gaussian) {
     const visual = await sparkVisual(file, file.name, zUp, fit, geometry);
     space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS 原场景`;
     return { space, visual };
   }
-  if (useSpark && gaussian === false && sampled.total > 250_000) {
-    try {
-      const visual = await sparkVisual(file, file.name, zUp, fit, geometry);
-      space.description = `${file.name} · ${formatBytes(file.size)} · 尝试原场景 splat`;
-      return { space, visual };
-    } catch {
-      // fall through to points
-    }
-  }
-  return { space, visual: { mode: "points", geometry } };
+  const splatBytes = rgbCloudToSplat(
+    geometry.getAttribute("position").array as Float32Array,
+    geometry.getAttribute("color").array as Float32Array,
+  );
+  return {
+    space,
+    visual: {
+      mode: "spark",
+      geometry,
+      splat: {
+        fileBytes: splatBytes,
+        fileName: `${file.name.replace(/\.[^.]+$/, "")}.splat`,
+        zUp: false,
+        fit: IDENTITY_FIT,
+      },
+    },
+  };
 }

@@ -93,6 +93,7 @@ export class OffscreenWorld {
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   extras: THREE.Object3D[] = [];
+  private disposed = false;
 
   constructor(space: SpaceModel, width: number, height: number) {
     this.scene = new THREE.Scene();
@@ -103,10 +104,19 @@ export class OffscreenWorld {
     this.scene.add(key);
     addHall(this.scene, space);
     this.camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 200);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.cssText =
+      "position:fixed;left:-9999px;top:0;width:1280px;height:720px;opacity:0;pointer-events:none;";
+    document.body.appendChild(canvas);
     this.renderer = new THREE.WebGLRenderer({
+      canvas,
       antialias: true,
       preserveDrawingBuffer: true,
+      alpha: false,
     });
+    this.renderer.setPixelRatio(1);
     this.renderer.setSize(width, height, false);
   }
 
@@ -157,7 +167,13 @@ export class OffscreenWorld {
   }
 
   dispose() {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.clearExtras();
+    const canvas = this.renderer.domElement;
+    canvas.remove();
     this.renderer.dispose();
   }
 }
@@ -203,6 +219,9 @@ export async function exportCameraVideo(
   filename: string,
   onProgress?: (label: string) => void,
 ) {
+  if (!shots.length) {
+    throw new Error("请先 Generate Shots，再导出视频");
+  }
   const width = 1280;
   const height = 720;
   const fps = 24;
@@ -210,21 +229,7 @@ export async function exportCameraVideo(
   const canvas = world.canvas();
   const dt = 1 / fps;
 
-  try {
-    const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, Quality } = await import(
-      "mediabunny"
-    );
-    const target = new BufferTarget();
-    const output = new Output({
-      format: new Mp4OutputFormat(),
-      target,
-    });
-    const source = new CanvasSource(canvas, {
-      codec: "avc",
-      quality: new Quality("high"),
-    });
-    output.addVideoTrack(source);
-    await output.start();
+  async function paintAll(onFrame?: (timestamp: number) => Promise<void>) {
     let timestamp = 0;
     for (const shot of shots) {
       const duration = Math.max(1, shot.movement.duration);
@@ -232,51 +237,88 @@ export async function exportCameraVideo(
       onProgress?.(`${mode === "motion" ? "运动" : "预览"} ${shot.title}`);
       for (let i = 0; i < frames; i += 1) {
         world.renderShot(shot, frames === 1 ? 0 : i / (frames - 1), mode);
-        await source.add(timestamp, dt);
+        await onFrame?.(timestamp);
         timestamp += dt;
         await waitFrame();
       }
     }
-    await output.finalize();
-    const buffer = target.buffer;
-    if (!buffer) {
-      throw new Error("empty mp4");
+  }
+
+  try {
+    const {
+      BufferTarget,
+      CanvasSource,
+      Mp4OutputFormat,
+      WebMOutputFormat,
+      Output,
+      Quality,
+    } = await import("mediabunny");
+    const tryEncode = async (codec: "avc" | "vp9", ext: "mp4" | "webm") => {
+      const target = new BufferTarget();
+      const output = new Output({
+        format: ext === "mp4" ? new Mp4OutputFormat() : new WebMOutputFormat(),
+        target,
+      });
+      const source = new CanvasSource(canvas, {
+        codec,
+        quality: new Quality("high"),
+        bitrate: 6_000_000,
+      });
+      output.addVideoTrack(source, { frameRate: fps });
+      await output.start();
+      await paintAll((timestamp) => source.add(timestamp, dt));
+      await output.finalize();
+      const buffer = target.buffer;
+      if (!buffer || buffer.byteLength < 32) {
+        throw new Error("empty video");
+      }
+      const outName = filename.replace(/\.(mp4|webm)$/i, "") + `.${ext}`;
+      downloadBlob(
+        new Blob([buffer], { type: ext === "mp4" ? "video/mp4" : "video/webm" }),
+        outName,
+      );
+    };
+    try {
+      await tryEncode("avc", "mp4");
+      return;
+    } catch {
+      await tryEncode("vp9", "webm");
+      return;
     }
-    downloadBlob(new Blob([buffer], { type: "video/mp4" }), filename.replace(/\.webm$/i, ".mp4"));
-    world.dispose();
-    return;
-  } catch {
-    const mime = pickRecorderMime();
-    if (!mime.includes("mp4")) {
-      world.dispose();
-      throw new Error("当前浏览器无法编码 MP4，请改用 Chrome / Edge 再导出");
+  } catch (first) {
+    const mime =
+      pickRecorderMime() ||
+      (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("video/webm")
+        ? "video/webm"
+        : "");
+    if (!mime) {
+      throw first instanceof Error ? first : new Error("当前浏览器无法编码视频");
     }
     const stream = canvas.captureStream(fps);
-    const recorder = new MediaRecorder(stream, { mimeType: mime });
+    const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5_000_000 });
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (event) => {
       if (event.data.size) {
         chunks.push(event.data);
       }
     };
-    const stopped = new Promise<Blob>((resolve) => {
-      recorder.onstop = () => resolve(new Blob(chunks, { type: "video/mp4" }));
+    const stopped = new Promise<Blob>((resolve, reject) => {
+      recorder.onerror = () => reject(new Error("录制失败"));
+      recorder.onstop = () => resolve(new Blob(chunks, { type: mime }));
     });
-    recorder.start();
-    for (const shot of shots) {
-      const duration = Math.max(1, shot.movement.duration);
-      const frames = Math.max(1, Math.round(duration * fps));
-      onProgress?.(`${mode === "motion" ? "运动" : "预览"} ${shot.title}`);
-      for (let i = 0; i < frames; i += 1) {
-        world.renderShot(shot, frames === 1 ? 0 : i / (frames - 1), mode);
-        await waitFrame();
-      }
-    }
+    recorder.start(250);
+    await paintAll();
+    await waitFrame();
     recorder.stop();
     stream.getTracks().forEach((track) => track.stop());
     const blob = await stopped;
+    if (blob.size < 32) {
+      throw new Error("导出的视频是空的，请再试一次");
+    }
+    const ext = mime.includes("mp4") ? "mp4" : "webm";
+    downloadBlob(blob, filename.replace(/\.(mp4|webm)$/i, "") + `.${ext}`);
+  } finally {
     world.dispose();
-    downloadBlob(blob, filename.replace(/\.webm$/i, ".mp4"));
   }
 }
 

@@ -113,6 +113,16 @@ describe("ply streaming", () => {
   });
 });
 
+describe("rgb cloud splat pack", () => {
+  it("writes 32-byte records", async () => {
+    const { rgbCloudToSplat } = await import("../lib/load-scene-model");
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0]);
+    const colors = new Float32Array([1, 0, 0, 0, 1, 0]);
+    const buf = rgbCloudToSplat(positions, colors);
+    expect(buf.byteLength).toBe(64);
+  });
+});
+
 describe("zip store", () => {
   it("builds a zip blob", () => {
     const blob = zipStore([{ name: "a.jpg", data: new Uint8Array([1, 2, 3]) }]);

@@ -206,7 +206,7 @@ function reducer(state: State, action: Action): State {
 }
 
 export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
-  const { addFromFile, addFromDataUrl, openGenerate } = useLibrary();
+  const { addFromFile, addFromDataUrl, openGenerate, assets, getBlob } = useLibrary();
   const [state, dispatch] = useReducer(reducer, {
     currentSceneId: "scene_02",
     story: storyData as Story,
@@ -260,6 +260,26 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   const toneInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
   const finishIntro = useCallback(() => setIntroDone(true), []);
+
+  useEffect(() => {
+    const scenes = assets.filter((item) => item.kind === "scene" || item.kind === "object");
+    if (!scenes.length) {
+      return;
+    }
+    setLibrary((cur) => {
+      const owned = new Set(cur.map((item) => item.id));
+      const extra = scenes
+        .filter((item) => !owned.has(item.id))
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          sizeLabel: item.sizeLabel,
+          source: "upload" as const,
+          ready: false,
+        }));
+      return extra.length ? [...cur, ...extra] : cur;
+    });
+  }, [assets]);
 
   const scene = state.story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
   const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
@@ -471,9 +491,17 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     if (!item.ready || !item.space) {
       if (item.file) {
         void ingestModel(item.file, item.id);
-      } else {
-        setToast({ kind: "err", text: item.error || "模型尚未解析完成" });
+        return;
       }
+      void (async () => {
+        const blob = await getBlob(item.id);
+        if (!blob) {
+          setToast({ kind: "err", text: item.error || "模型尚未解析完成" });
+          return;
+        }
+        const named = item.name.includes(".") ? item.name : `${item.name}.ply`;
+        await ingestModel(new File([blob], named, { type: "application/octet-stream" }), item.id);
+      })();
       return;
     }
     const nextSpace = item.space;
@@ -661,11 +689,20 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     }
     dispatch({ type: "busy", busy: "正在导出…" });
     try {
+      if (!state.shots.length) {
+        seedShots();
+      }
+      const shots = state.shots.length
+        ? state.shots
+        : fallbackShots(scene.scene_id, state.space, state.dna?.reference_id ?? "ref_001");
+      if (!shots.length) {
+        throw new Error("没有可导出的镜头");
+      }
       const media = await import("@/lib/media-export");
       if (kind === "motion") {
         await media.exportCameraVideo(
           state.space,
-          state.shots,
+          shots,
           "motion",
           "yunjing-camera-move.mp4",
           (label) => dispatch({ type: "busy", busy: `导出运动视频 · ${label}` }),
@@ -673,7 +710,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       } else if (kind === "preview") {
         await media.exportCameraVideo(
           state.space,
-          state.shots,
+          shots,
           "preview",
           "yunjing-preview.mp4",
           (label) => dispatch({ type: "busy", busy: `导出预览视频 · ${label}` }),
@@ -681,14 +718,15 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       } else {
         const rows = await media.captureStillRows(
           state.space,
-          state.shots,
+          shots,
           sampleStillFrames,
         );
         await media.exportStillsJpgs(rows, "yunjing-stills.zip");
       }
-    } catch {
-      dispatch({ type: "busy", busy: "导出失败，请重试" });
-      setToast({ kind: "err", text: "导出失败，请重试" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "导出失败，请重试";
+      dispatch({ type: "busy", busy: null });
+      setToast({ kind: "err", text: message });
       return;
     }
     dispatch({ type: "busy", busy: null });

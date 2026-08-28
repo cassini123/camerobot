@@ -4,7 +4,7 @@ import { createWorldClient } from "@manycore/aholo-sdk-world";
 import type { GenerateKind } from "./generate-intent";
 
 export function hasAholoKey(): boolean {
-  return Boolean(process.env.AHOLO_API_KEY);
+  return Boolean((process.env.AHOLO_API_KEY ?? "").trim());
 }
 
 function region(): "cn" | "com" {
@@ -13,8 +13,9 @@ function region(): "cn" | "com" {
 
 function cfg() {
   return {
-    apiKey: process.env.AHOLO_API_KEY,
+    apiKey: (process.env.AHOLO_API_KEY ?? "").trim(),
     region: region(),
+    timeoutMs: 120_000,
   };
 }
 
