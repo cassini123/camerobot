@@ -510,6 +510,7 @@ export function SpaceViewer({
             : "3D SPACE · CAMERA PATH"}
       </span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
+      {dual ? <i className="viewer-gutter" aria-hidden="true" /> : null}
       <div className={dual ? "viewer-split single-gl" : undefined} style={{ height: "100%" }}>
         <Canvas
           shadows

@@ -367,6 +367,18 @@ textarea {
 .pov-label {
   left: auto;
   right: 12px;
+  z-index: 4;
+}
+
+.viewer-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 62%;
+  z-index: 3;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(240, 210, 168, 0.55), rgba(240, 210, 168, 0.12));
+  pointer-events: none;
 }
 
 .shot-pattern {
