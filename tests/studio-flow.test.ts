@@ -34,6 +34,36 @@ describe("generate intent", () => {
   });
 });
 
+describe("generate job copy", () => {
+  it("surfaces failure reason and done copy", async () => {
+    const { jobHeadline, GENERATE_FAIL } = await import("../lib/generate-job");
+    expect(GENERATE_FAIL.has("FAILED")).toBe(true);
+    expect(
+      jobHeadline({
+        id: "1",
+        kind: "world",
+        prompt: "hall",
+        status: "failed",
+        phase: "x",
+        error: "世界生成失败（TIMEOUT）",
+        minimized: true,
+        createdAt: 0,
+      }),
+    ).toBe("世界生成失败（TIMEOUT）");
+    expect(
+      jobHeadline({
+        id: "1",
+        kind: "world",
+        prompt: "hall",
+        status: "done",
+        phase: "ok",
+        minimized: true,
+        createdAt: 0,
+      }),
+    ).toBe("已加入 Library");
+  });
+});
+
 describe("film timeline", () => {
   it("walks across shots by duration", () => {
     const shots = [shot("a", 2, "STATIC"), shot("b", 2, "ORBIT")];
