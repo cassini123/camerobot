@@ -15,7 +15,7 @@ const PLY = path.join(DIR, "model.ply");
 const SCRIPT = path.join(process.cwd(), "example", "fetch-model.sh");
 
 /** Prefer compressed 3DGS that Spark can actually decode in a tab. */
-const COMPRESSED = ["model.plz", "model.spz", "model.sog", "model.zip", "model.rad"] as const;
+const COMPRESSED = ["model.spz", "model.plz", "model.sog", "model.zip", "model.rad"] as const;
 
 function fileMeta(filePath: string) {
   const present = existsSync(filePath);

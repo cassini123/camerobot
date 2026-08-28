@@ -20,7 +20,7 @@ npm run dev
 
 Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_API_KEY`（可选）。密钥不要提交进仓库。
 
-网页上的 3DGS **不要用数 GB 的高斯 PLY**（浏览器解不出原画质，看起来永远像抽样点云）。请导出 **PLZ / SPZ / SOG**（通常几十到几百 MB），在 VirtuPath 上传或贴 CDN 链接。示例扫描把压缩包放到 `example/model.plz`，或设置 `EXAMPLE_SPLAT_URL`。做成桌面 App 也绕不开显存，压缩才是正路。
+网页上的 3DGS **不要用数 GB 的高斯 PLY**。你已有 **SPZ 就用 SPZ**（Spark 原生、体积小、画质接近原 PLY）。把文件放到 `example/model.spz`，或在 VirtuPath 直接上传 / 贴 CDN 链接，或设置 `EXAMPLE_SPLAT_URL`。只有 SPZ 丢失、只剩 PLY 时才跑 `npm run splat:spz`。
 
 ### Demo 十步
 
