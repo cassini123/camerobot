@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { virtupathHrefForAsset, type AssetKind, type AssetSource } from "@/lib/library-types";
+import { virtupathHrefForAsset, type AssetKind, type AssetSource, type LibraryAsset } from "@/lib/library-types";
 import { AssetThumb } from "./AssetThumb";
 import { ExploreMasonry } from "./ExploreMasonry";
 import { useLibrary } from "./LibraryProvider";
@@ -18,12 +18,68 @@ const KINDS: { id: "all" | AssetKind; label: string }[] = [
 type Section = "explore" | "mine";
 type MineSource = "upload" | "generated";
 
+function LibraryCard({
+  item,
+  picked,
+  onPick,
+}: {
+  item: LibraryAsset;
+  picked: boolean;
+  onPick: () => void;
+}) {
+  const virtupath = virtupathHrefForAsset(item);
+  return (
+    <article className={picked ? "lib-card gemini-glow" : "lib-card"} onClick={onPick}>
+      {virtupath ? (
+        <Link href={virtupath} className="lib-thumb" onClick={(event) => event.stopPropagation()}>
+          {item.kind === "video" && item.previewUrl ? (
+            <video src={item.previewUrl} muted />
+          ) : (
+            <AssetThumb asset={item} />
+          )}
+        </Link>
+      ) : item.kind === "video" && item.previewUrl ? (
+        <video src={item.previewUrl} muted />
+      ) : (
+        <AssetThumb asset={item} />
+      )}
+      <b>{item.name}</b>
+      <small>
+        {item.kind} · {item.source} · {item.sizeLabel}
+      </small>
+      {item.prompt ? <p>{item.prompt}</p> : null}
+      <div className="lib-actions" onClick={(event) => event.stopPropagation()}>
+        {virtupath ? (
+          <Link className="btn primary" href={virtupath}>
+            在 VirtuPath 使用
+          </Link>
+        ) : null}
+        {item.remoteUrl ? (
+          <a href={item.remoteUrl} target="_blank" rel="noreferrer">
+            {item.kind === "scene" ? "下载 SPZ" : "下载"}
+          </a>
+        ) : null}
+        {item.plyUrl ? (
+          <a href={item.plyUrl} target="_blank" rel="noreferrer">
+            下载 PLY
+          </a>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 export function LibraryPage() {
   const { assets, addFromFile, openGenerate } = useLibrary();
-  const [section, setSection] = useState<Section>("explore");
-  const [mineSource, setMineSource] = useState<MineSource>("upload");
+  const [section, setSection] = useState<Section>("mine");
+  const [mineSource, setMineSource] = useState<MineSource>("generated");
   const [kind, setKind] = useState<(typeof KINDS)[number]["id"]>("all");
   const [picked, setPicked] = useState<string | null>(null);
+
+  const worlds = useMemo(
+    () => assets.filter((item) => item.source === "generated"),
+    [assets],
+  );
 
   const mine = useMemo(() => {
     const source: AssetSource = mineSource;
@@ -62,7 +118,24 @@ export function LibraryPage() {
       </div>
 
       {section === "explore" ? (
-        <ExploreMasonry />
+        <>
+          {worlds.length ? (
+            <>
+              <p className="lib-worlds-label">生成世界 · 全景预览与 3DGS 场景</p>
+              <div className="lib-grid lib-grid-worlds">
+                {worlds.map((item) => (
+                  <LibraryCard
+                    key={item.id}
+                    item={item}
+                    picked={picked === item.id}
+                    onPick={() => setPicked(item.id)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : null}
+          <ExploreMasonry />
+        </>
       ) : (
         <>
           <div className="lib-toolbar lib-toolbar-sub">
@@ -107,11 +180,7 @@ export function LibraryPage() {
                 />
               </label>
             ) : (
-              <button
-                type="button"
-                className="btn"
-                onClick={() => openGenerate("world")}
-              >
+              <button type="button" className="btn" onClick={() => openGenerate("world")}>
                 + 生成
               </button>
             )}
@@ -124,56 +193,14 @@ export function LibraryPage() {
                   : "还没有生成结果。VirtuPath 或 WORLD 生成的模型会进这一栏。"}
               </p>
             ) : (
-              mine.map((item) => {
-                const virtupath = virtupathHrefForAsset(item);
-                return (
-                  <article
-                    key={item.id}
-                    className={picked === item.id ? "lib-card gemini-glow" : "lib-card"}
-                    onClick={() => setPicked(item.id)}
-                  >
-                    {virtupath ? (
-                      <Link
-                        href={virtupath}
-                        className="lib-thumb"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {item.kind === "video" && item.previewUrl ? (
-                          <video src={item.previewUrl} muted />
-                        ) : (
-                          <AssetThumb asset={item} />
-                        )}
-                      </Link>
-                    ) : item.kind === "video" && item.previewUrl ? (
-                      <video src={item.previewUrl} muted />
-                    ) : (
-                      <AssetThumb asset={item} />
-                    )}
-                    <b>{item.name}</b>
-                    <small>
-                      {item.kind} · {item.source} · {item.sizeLabel}
-                    </small>
-                    {item.prompt ? <p>{item.prompt}</p> : null}
-                    <div className="lib-actions" onClick={(event) => event.stopPropagation()}>
-                      {virtupath ? (
-                        <Link className="btn primary" href={virtupath}>
-                          在 VirtuPath 使用
-                        </Link>
-                      ) : null}
-                      {item.remoteUrl ? (
-                        <a href={item.remoteUrl} target="_blank" rel="noreferrer">
-                          {item.kind === "scene" ? "下载 SPZ" : "下载"}
-                        </a>
-                      ) : null}
-                      {item.plyUrl ? (
-                        <a href={item.plyUrl} target="_blank" rel="noreferrer">
-                          下载 PLY
-                        </a>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })
+              mine.map((item) => (
+                <LibraryCard
+                  key={item.id}
+                  item={item}
+                  picked={picked === item.id}
+                  onPick={() => setPicked(item.id)}
+                />
+              ))
             )}
           </div>
         </>

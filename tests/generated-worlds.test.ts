@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { virtupathHrefForAsset } from "../lib/library-types";
-import { bundledLibraryAssets, GENERATED_WORLDS, mergeLibraryAssets } from "../lib/generated-worlds";
+import { bundledLibraryAssets, GENERATED_WORLDS, GAME_WORLD_WORLDS, mergeLibraryAssets, pickGeneratedWorlds } from "../lib/generated-worlds";
 import { modelUrlExtension, remoteSparkScene, sparkFileName } from "../lib/load-scene-model";
 import { HALL_HERO, heroView } from "../lib/view-frame";
 import type { SpaceModel } from "../lib/types";
@@ -49,6 +49,14 @@ describe("generated worlds catalog", () => {
     ]);
     expect(merged.some((item) => item.id === "world-fjord")).toBe(true);
     expect(merged.some((item) => item.id === "user-1")).toBe(true);
+  });
+
+  it("puts a stable four worlds into Game World", () => {
+    expect(GAME_WORLD_WORLDS).toHaveLength(4);
+    expect(new Set(GAME_WORLD_WORLDS.map((world) => world.id)).size).toBe(4);
+    expect(pickGeneratedWorlds(4).map((world) => world.id)).toEqual(
+      GAME_WORLD_WORLDS.map((world) => world.id),
+    );
   });
 
   it("opens library scenes in VirtuPath by id, including pano cards", () => {

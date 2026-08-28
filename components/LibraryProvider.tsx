@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatBytes } from "@/lib/ply-stream";
-import { mergeLibraryAssets } from "@/lib/generated-worlds";
+import { mergeLibraryAssets, bundledLibraryAssets } from "@/lib/generated-worlds";
 import {
   inferAssetKind,
   type AssetKind,
@@ -100,6 +100,24 @@ async function putBlob(id: string, blob: Blob) {
   });
 }
 
+function slimAssets(assets: LibraryAsset[]): LibraryAsset[] {
+  return assets.map((item) => {
+    const copy = { ...item };
+    if (copy.previewUrl?.startsWith("blob:") || copy.previewUrl?.startsWith("data:")) {
+      delete copy.previewUrl;
+    }
+    return copy;
+  });
+}
+
+function persistMeta(assets: LibraryAsset[]) {
+  try {
+    localStorage.setItem(META_KEY, JSON.stringify(slimAssets(assets)));
+  } catch {
+    /* private mode */
+  }
+}
+
 function loadMeta(): LibraryAsset[] {
   try {
     const raw = localStorage.getItem(META_KEY);
@@ -110,7 +128,7 @@ function loadMeta(): LibraryAsset[] {
 }
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
-  const [assets, setAssets] = useState<LibraryAsset[]>([]);
+  const [assets, setAssets] = useState<LibraryAsset[]>(() => bundledLibraryAssets());
   const [generate, setGenerate] = useState<GenerateOpen>(null);
   const [jobs, setJobs] = useState<GenerateJob[]>([]);
   const [docking, setDocking] = useState(false);
@@ -119,8 +137,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       const meta = mergeLibraryAssets(loadMeta());
+      persistMeta(meta);
       const restored = await Promise.all(
         meta.map(async (item) => {
+          if (item.previewUrl?.startsWith("/")) {
+            return item;
+          }
           const preview = await getBlob(`preview-${item.id}`);
           if (preview) {
             return { ...item, previewUrl: URL.createObjectURL(preview) };
@@ -145,14 +167,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
     setAssets((cur) => {
       const next = [asset, ...cur.filter((item) => item.id !== asset.id)];
-      const slim = next.map((item) => {
-        const copy = { ...item };
-        if (copy.previewUrl?.startsWith("blob:") || copy.previewUrl?.startsWith("data:")) {
-          delete copy.previewUrl;
-        }
-        return copy;
-      });
-      localStorage.setItem(META_KEY, JSON.stringify(slim));
+      persistMeta(next);
       return next;
     });
     return asset;

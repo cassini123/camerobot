@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { FRIENDS, PLACES, type FriendId } from "@/lib/game-world";
-import { EXPLORE_FEED } from "@/lib/library-explore";
+import { EXPLORE_FEED, gameWorldExploreItems } from "@/lib/library-explore";
 import { ExploreMasonry } from "./ExploreMasonry";
 
 export function GameWorld() {
@@ -30,8 +30,11 @@ export function GameWorld() {
     });
   }
 
+  const worldClips = useMemo(() => gameWorldExploreItems(), []);
   const clips =
-    selected === "all" ? EXPLORE_FEED : EXPLORE_FEED.filter((item) => item.who === selected);
+    selected === "all"
+      ? [...worldClips, ...EXPLORE_FEED]
+      : [...worldClips, ...EXPLORE_FEED].filter((item) => item.who === selected);
 
   return (
     <div className="game-world">
@@ -72,11 +75,22 @@ export function GameWorld() {
                 key={place.id}
                 type="button"
                 className={
-                  here === place.id ? "pin here" : people.length > 1 ? "pin shared" : "pin"
+                  here === place.id
+                    ? place.pano
+                      ? "pin world here"
+                      : "pin here"
+                    : people.length > 1
+                      ? place.pano
+                        ? "pin world shared"
+                        : "pin shared"
+                      : place.pano
+                        ? "pin world"
+                        : "pin"
                 }
                 style={{ left: `${place.x}%`, top: `${place.y}%`, opacity: dim ? 0.28 : 1 }}
                 onClick={() => walkTo(place.id)}
               >
+                {place.pano ? <img src={place.pano} alt="" /> : null}
                 <span>{place.name}</span>
                 <em>
                   {people.length > 1
@@ -88,7 +102,7 @@ export function GameWorld() {
           })}
           <div className="you-token" style={{ left: `${PLACES.find((p) => p.id === here)?.x}%`, top: `${PLACES.find((p) => p.id === here)?.y}%` }} />
         </div>
-        <p className="map-hint">点地点即可走入。好友去过的地点会互相点亮；两人以上到过即为共享。</p>
+        <p className="map-hint">点地点即可走入。四个生成世界带全景图钉；点信息流可进 VirtuPath 拍 3DGS。好友去过的地点会互相点亮。</p>
       </div>
 
       <section className="game-feed" aria-label="信息流">

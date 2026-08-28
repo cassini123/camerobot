@@ -158,3 +158,19 @@ export function mergeLibraryAssets(existing: LibraryAsset[]): LibraryAsset[] {
   const bundledIds = new Set(bundled.map((item) => item.id));
   return [...bundled, ...existing.filter((item) => !bundledIds.has(item.id))];
 }
+
+/** Stable shuffle so Game World always shows the same four generated worlds. */
+export function pickGeneratedWorlds(count = 4, seed = 20260828): GeneratedWorld[] {
+  const copy = [...GENERATED_WORLDS];
+  let state = seed >>> 0;
+  for (let i = copy.length - 1; i > 0; i--) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const j = state % (i + 1);
+    const current = copy[i]!;
+    copy[i] = copy[j]!;
+    copy[j] = current;
+  }
+  return copy.slice(0, Math.min(count, copy.length));
+}
+
+export const GAME_WORLD_WORLDS = pickGeneratedWorlds(4);
