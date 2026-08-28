@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePlyHeaderText, sampleStride, samplePlyFile } from "../lib/ply-stream";
+import { colorFromChannels, parsePlyHeaderText, sampleStride, samplePlyFile, SH_C0 } from "../lib/ply-stream";
 import { zipStore } from "../lib/zip-store";
 
 describe("ply streaming", () => {
@@ -51,6 +51,22 @@ describe("ply streaming", () => {
     expect(sampled.kept).toBe(3);
     expect(sampled.positions[0]).toBeCloseTo(1);
     expect(sampled.positions[8]).toBeCloseTo(9);
+  });
+
+  it("decodes 3DGS f_dc spherical-harmonic colors", () => {
+    const properties = [
+      { name: "x", type: "float" },
+      { name: "y", type: "float" },
+      { name: "z", type: "float" },
+      { name: "f_dc_0", type: "float" },
+      { name: "f_dc_1", type: "float" },
+      { name: "f_dc_2", type: "float" },
+    ];
+    const values = [0, 0, 0, 1.7724539, 0, -1.7724539];
+    const rgb = colorFromChannels(properties, (index) => values[index]);
+    expect(rgb?.[0]).toBeCloseTo(0.5 + SH_C0 * 1.7724539, 5);
+    expect(rgb?.[1]).toBeCloseTo(0.5, 5);
+    expect(rgb?.[2]).toBeCloseTo(0, 5);
   });
 });
 

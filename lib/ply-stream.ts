@@ -31,6 +31,8 @@ const TYPE_SIZE: Record<string, number> = {
 
 export const TARGET_POINTS = 180_000;
 export const CHUNK = 8 * 1024 * 1024;
+/** 3DGS spherical-harmonic DC coefficient → linear RGB. */
+export const SH_C0 = 0.28209479177387814;
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) {
@@ -102,6 +104,42 @@ export function parsePlyHeaderText(text: string): Omit<PlyHeader, "headerLength"
 
 export function sampleStride(vertexCount: number, target = TARGET_POINTS): number {
   return Math.max(1, Math.floor(vertexCount / target));
+}
+
+function propertyIndex(properties: PlyProperty[], names: string[]): number {
+  return properties.findIndex((prop) => names.includes(prop.name));
+}
+
+/** RGB from `red/green/blue` or 3DGS `f_dc_*` SH DC. */
+export function colorFromChannels(
+  properties: PlyProperty[],
+  read: (index: number) => number,
+): [number, number, number] | null {
+  const red = propertyIndex(properties, ["red", "r"]);
+  const green = propertyIndex(properties, ["green", "g"]);
+  const blue = propertyIndex(properties, ["blue", "b"]);
+  if (red >= 0 && green >= 0 && blue >= 0) {
+    let r = read(red);
+    let g = read(green);
+    let b = read(blue);
+    if (r > 1.5 || g > 1.5 || b > 1.5) {
+      r /= 255;
+      g /= 255;
+      b /= 255;
+    }
+    return [r, g, b];
+  }
+  const dc0 = propertyIndex(properties, ["f_dc_0"]);
+  const dc1 = propertyIndex(properties, ["f_dc_1"]);
+  const dc2 = propertyIndex(properties, ["f_dc_2"]);
+  if (dc0 >= 0 && dc1 >= 0 && dc2 >= 0) {
+    return [
+      Math.min(1, Math.max(0, 0.5 + SH_C0 * read(dc0))),
+      Math.min(1, Math.max(0, 0.5 + SH_C0 * read(dc1))),
+      Math.min(1, Math.max(0, 0.5 + SH_C0 * read(dc2))),
+    ];
+  }
+  return null;
 }
 
 function findHeaderEnd(bytes: Uint8Array): number {
@@ -188,9 +226,6 @@ export async function sampleBinaryPly(
   if (x < 0 || y < 0 || z < 0) {
     throw new Error("PLY 缺少 x/y/z");
   }
-  const red = header.properties.findIndex((p) => p.name === "red" || p.name === "r");
-  const green = header.properties.findIndex((p) => p.name === "green" || p.name === "g");
-  const blue = header.properties.findIndex((p) => p.name === "blue" || p.name === "b");
   const offsets: number[] = [];
   let acc = 0;
   for (const prop of header.properties) {
@@ -250,18 +285,13 @@ export async function sampleBinaryPly(
     positions[keepIndex * 3] = xv;
     positions[keepIndex * 3 + 1] = yv;
     positions[keepIndex * 3 + 2] = zv;
-    if (red >= 0 && green >= 0 && blue >= 0) {
-      let r = readNumber(view, offsets[red], header.properties[red].type, little).value;
-      let g = readNumber(view, offsets[green], header.properties[green].type, little).value;
-      let b = readNumber(view, offsets[blue], header.properties[blue].type, little).value;
-      if (r > 1.5 || g > 1.5 || b > 1.5) {
-        r /= 255;
-        g /= 255;
-        b /= 255;
-      }
-      colors[keepIndex * 3] = r;
-      colors[keepIndex * 3 + 1] = g;
-      colors[keepIndex * 3 + 2] = b;
+    const rgb = colorFromChannels(header.properties, (index) =>
+      readNumber(view, offsets[index], header.properties[index].type, little).value,
+    );
+    if (rgb) {
+      colors[keepIndex * 3] = rgb[0];
+      colors[keepIndex * 3 + 1] = rgb[1];
+      colors[keepIndex * 3 + 2] = rgb[2];
     }
     keepIndex += 1;
   };
@@ -312,27 +342,17 @@ export async function samplePlyFile(
     const xi = names.indexOf("x");
     const yi = names.indexOf("y");
     const zi = names.indexOf("z");
-    const ri = names.findIndex((n) => n === "red" || n === "r");
-    const gi = names.findIndex((n) => n === "green" || n === "g");
-    const bi = names.findIndex((n) => n === "blue" || n === "b");
     let keepIndex = 0;
     for (let i = 0; i < header.vertexCount && keepIndex < kept; i += stride) {
       const parts = lines[i]?.trim().split(/\s+/) ?? [];
       positions[keepIndex * 3] = Number(parts[xi]);
       positions[keepIndex * 3 + 1] = Number(parts[yi]);
       positions[keepIndex * 3 + 2] = Number(parts[zi]);
-      if (ri >= 0) {
-        let r = Number(parts[ri]);
-        let g = Number(parts[gi]);
-        let b = Number(parts[bi]);
-        if (r > 1.5) {
-          r /= 255;
-          g /= 255;
-          b /= 255;
-        }
-        colors[keepIndex * 3] = r;
-        colors[keepIndex * 3 + 1] = g;
-        colors[keepIndex * 3 + 2] = b;
+      const rgb = colorFromChannels(header.properties, (index) => Number(parts[index]));
+      if (rgb) {
+        colors[keepIndex * 3] = rgb[0];
+        colors[keepIndex * 3 + 1] = rgb[1];
+        colors[keepIndex * 3 + 2] = rgb[2];
       }
       keepIndex += 1;
     }
