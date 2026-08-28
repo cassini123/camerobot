@@ -8,6 +8,16 @@ export function filmDuration(shots: Shot[]): number {
   return shots.reduce((sum, shot) => sum + shotDuration(shot), 0);
 }
 
+export function keepCurrentShotId(
+  shots: Shot[],
+  currentId: string | null,
+): string | null {
+  if (currentId && shots.some((shot) => shot.shot_id === currentId)) {
+    return currentId;
+  }
+  return shots.find((shot) => shot.shot_id === "shot_02")?.shot_id ?? shots[0]?.shot_id ?? null;
+}
+
 export function filmTAtShot(shots: Shot[], shotId: string): number {
   const total = filmDuration(shots);
   if (!total) {
@@ -21,6 +31,17 @@ export function filmTAtShot(shots: Shot[], shotId: string): number {
     acc += shotDuration(shot);
   }
   return 0;
+}
+
+export function seekTFromClientX(
+  clientX: number,
+  trackLeft: number,
+  trackWidth: number,
+): number {
+  if (trackWidth <= 0) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, (clientX - trackLeft) / trackWidth));
 }
 
 export function sampleFilm(

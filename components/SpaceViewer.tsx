@@ -7,7 +7,7 @@ import * as THREE from "three";
 import type { CameraPath, Shot, SpaceModel, SpaceObject, Vec3 } from "@/lib/types";
 import type { SceneSplat } from "@/lib/scene-visual";
 import { pathPoints, samplePath } from "@/lib/path-engine";
-import { filmDuration, shotDuration } from "@/lib/film-timeline";
+import { filmDuration, seekTFromClientX, shotDuration } from "@/lib/film-timeline";
 import { SplatCloud } from "./SplatCloud";
 import { isTypingTarget, leftPaneNdc, VIEW_SPLIT } from "@/lib/view-pane";
 
@@ -466,7 +466,6 @@ export function SpaceViewer({
   filmT,
   onToggleTimeline,
   onPlayFilm,
-  onPickShot,
   onSeekFilm,
   onEnsureShots,
 }: {
@@ -486,17 +485,15 @@ export function SpaceViewer({
   filmT: number;
   onToggleTimeline: () => void;
   onPlayFilm: () => void;
-  onPickShot: (id: string) => void;
   onSeekFilm: (t: number) => void;
   onEnsureShots: () => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const camPos: Vec3 = current
-    ? previewing || filmPlaying
-      ? samplePath(current.path, previewT)
-      : current.path.start
+    ? samplePath(current.path, previewT)
     : ([0, 2, 8] as Vec3);
   const rootRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
   const [full, setFull] = useState(false);
   const [orbitLock, setOrbitLock] = useState(false);
   const picked = space.objects.find((obj) => obj.id === selectedId);
@@ -623,7 +620,7 @@ export function SpaceViewer({
           ))}
           {shots.map((shot) => {
             const pos =
-              shot.shot_id === current?.shot_id && (previewing || filmPlaying)
+              shot.shot_id === current?.shot_id
                 ? camPos
                 : shot.path.start;
             return (
@@ -688,13 +685,28 @@ export function SpaceViewer({
           <div
             className="film-track"
             aria-label="全片时间轴"
-            onClick={(event) => {
+            onPointerDown={(event) => {
               if (!shots.length) {
                 onEnsureShots();
                 return;
               }
+              draggingRef.current = true;
+              event.currentTarget.setPointerCapture(event.pointerId);
               const rect = event.currentTarget.getBoundingClientRect();
-              onSeekFilm(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)));
+              onSeekFilm(seekTFromClientX(event.clientX, rect.left, rect.width));
+            }}
+            onPointerMove={(event) => {
+              if (!draggingRef.current || !shots.length) {
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              onSeekFilm(seekTFromClientX(event.clientX, rect.left, rect.width));
+            }}
+            onPointerUp={() => {
+              draggingRef.current = false;
+            }}
+            onPointerCancel={() => {
+              draggingRef.current = false;
             }}
           >
             {shots.length === 0 ? (
@@ -703,18 +715,14 @@ export function SpaceViewer({
               </button>
             ) : (
               shots.map((shot) => (
-                <button
+                <span
                   key={shot.shot_id}
-                  type="button"
                   className={shot.shot_id === currentShotId ? "on" : ""}
                   style={{ flexGrow: shotDuration(shot), flexBasis: 0 }}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPickShot(shot.shot_id);
-                  }}
                 >
                   {shot.title}
-                </button>
+                  <em>{shot.movement.duration.toFixed(1)}s</em>
+                </span>
               ))
             )}
             {shots.length ? (

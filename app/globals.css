@@ -1178,6 +1178,11 @@ input[type="range"]::-moz-range-thumb {
   backdrop-filter: blur(16px);
 }
 
+.shot.preset.on {
+  color: var(--gold-2);
+  background: rgba(212, 165, 116, 0.12);
+}
+
 .film-track {
   position: relative;
   display: flex;
@@ -1185,8 +1190,11 @@ input[type="range"]::-moz-range-thumb {
   height: 36px;
   overflow: hidden;
   border-radius: 8px;
+  cursor: ew-resize;
+  touch-action: none;
 }
 
+.film-track span,
 .film-track button {
   border: 0;
   background: rgba(255, 255, 255, 0.08);
@@ -1195,9 +1203,20 @@ input[type="range"]::-moz-range-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+  pointer-events: none;
+  display: grid;
+  align-content: center;
+  padding: 0 6px;
 }
 
+.film-track span em {
+  display: block;
+  font-style: normal;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.film-track span.on,
 .film-track button.on {
   background: rgba(212, 165, 116, 0.35);
 }
@@ -1218,6 +1237,7 @@ input[type="range"]::-moz-range-thumb {
   background: transparent;
   border: 0;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .product-hub,
@@ -1494,7 +1514,7 @@ input[type="range"]::-moz-range-thumb {
 .game-world {
   min-height: 100dvh;
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) 280px;
+  grid-template-columns: 88px minmax(280px, 0.85fr) minmax(420px, 1.25fr);
   background:
     radial-gradient(900px 500px at 30% 20%, rgba(90, 160, 140, 0.12), transparent 50%),
     var(--bg);
@@ -1717,32 +1737,153 @@ input[type="range"]::-moz-range-thumb {
   padding-top: 16px;
 }
 
-.explore-feed {
+.explore-masonry-wrap {
+  position: relative;
   padding: 20px 28px 48px;
-  display: grid;
-  gap: 18px;
-  max-width: 720px;
-  margin: 0 auto;
 }
 
-.explore-card {
+.game-feed .explore-masonry-wrap {
+  padding: 8px 0 24px;
+}
+
+.explore-flow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(115deg, transparent 0%, rgba(212, 165, 116, 0.08) 22%, transparent 38%),
+    linear-gradient(245deg, transparent 40%, rgba(122, 160, 196, 0.07) 58%, transparent 78%);
+  background-size: 180% 180%;
+  animation: explore-sheen 14s linear infinite;
+  mask-image: radial-gradient(ellipse at 50% 20%, #000 20%, transparent 75%);
+}
+
+@keyframes explore-sheen {
+  0% {
+    background-position: 0% 40%;
+  }
+  100% {
+    background-position: 100% 60%;
+  }
+}
+
+.explore-masonry {
+  position: relative;
+  column-count: 3;
+  column-gap: 14px;
+}
+
+.explore-tile {
+  break-inside: avoid;
+  margin: 0 0 14px;
   border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 8px;
+  background: rgba(8, 9, 12, 0.55);
   display: grid;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
 }
 
-.explore-card video,
-.explore-card img {
+.explore-tile video {
   width: 100%;
-  aspect-ratio: 9 / 16;
-  max-height: 72vh;
   object-fit: cover;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #111;
+  display: block;
+}
+
+.explore-tile.span-tall video {
+  aspect-ratio: 9 / 16;
+}
+
+.explore-tile.span-wide video {
+  aspect-ratio: 16 / 9;
+}
+
+.explore-tile.span-square video {
+  aspect-ratio: 4 / 3;
+}
+
+.explore-tile b {
+  font-size: 13px;
+}
+
+.explore-tile small {
+  color: var(--muted);
+}
+
+.explore-detail {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.62);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.explore-detail-card {
+  position: relative;
+  width: min(1080px, 100%);
+  max-height: 86vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
+  gap: 20px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(10, 11, 14, 0.94);
+}
+
+.explore-detail-card video {
+  width: 100%;
+  max-height: 76vh;
+  object-fit: contain;
+  background: #000;
+  border-radius: 12px;
+}
+
+.explore-detail-card aside {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.explore-detail-card h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.explore-detail-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.explore-dl-label {
+  color: var(--text) !important;
+  font-size: 13px;
+}
+
+.explore-dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.explore-dl a {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--gold-2);
+  text-decoration: none;
+  text-transform: lowercase;
+}
+
+.explore-feed,
+.explore-card {
+  display: none;
 }
 
 .lib-card {
@@ -2055,6 +2196,12 @@ input[type="range"]::-moz-range-thumb {
     padding-left: 28px;
   }
   .game-world {
+    grid-template-columns: 1fr;
+  }
+  .explore-masonry {
+    column-count: 2;
+  }
+  .explore-detail-card {
     grid-template-columns: 1fr;
   }
   .product-hub {

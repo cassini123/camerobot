@@ -12,7 +12,7 @@ import { sampleStillFrames } from "@/lib/still-frames";
 import { EXAMPLE_VISUAL_DNA, fallbackShots, heuristicDirector } from "@/lib/fallbacks";
 import { applyPathToShot } from "@/lib/path-engine";
 import { applyPresetToShot, type CatalogPreset } from "@/lib/shot-catalog";
-import { filmDuration, filmTAtShot, sampleFilm } from "@/lib/film-timeline";
+import { filmDuration, filmTAtShot, keepCurrentShotId, sampleFilm } from "@/lib/film-timeline";
 import { deepMerge, setPath } from "@/lib/patch";
 import {
   FULL_EXAMPLE_GAUSSIANS,
@@ -132,10 +132,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         shots: action.shots,
-        currentShotId:
-          action.shots.find((s) => s.shot_id === "shot_02")?.shot_id ??
-          action.shots[0]?.shot_id ??
-          null,
+        currentShotId: keepCurrentShotId(action.shots, state.currentShotId),
       };
     case "selectShot":
       return { ...state, currentShotId: action.id };
@@ -285,7 +282,10 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   }, [assets]);
 
   const scene = state.story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
-  const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
+  const playheadShotId = filmPlaying
+    ? (sampleFilm(state.shots, filmT)?.shot.shot_id ?? state.currentShotId)
+    : state.currentShotId;
+  const currentShot = state.shots.find((s) => s.shot_id === playheadShotId);
   const selected = state.space.objects.find((obj) => obj.id === selectedId);
 
   function patchCurrentShot(partial: Record<string, unknown>) {
@@ -311,14 +311,18 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
 
   function applyCatalog(preset: CatalogPreset) {
     const seeded = seedShots();
-    const current = seeded.find((item) => item.shot_id === state.currentShotId) ?? seeded[0];
+    const playheadId = filmPlaying
+      ? (sampleFilm(seeded, filmT)?.shot.shot_id ?? state.currentShotId)
+      : state.currentShotId;
+    const current = seeded.find((item) => item.shot_id === playheadId) ?? seeded[0];
     const patched = applyPathToShot(applyPresetToShot(preset, current), state.space);
-    dispatch({
-      type: "shots",
-      shots: seeded.map((item) => (item.shot_id === patched.shot_id ? patched : item)),
-    });
+    const shots = seeded.map((item) => (item.shot_id === patched.shot_id ? patched : item));
+    dispatch({ type: "shots", shots });
+    dispatch({ type: "selectShot", id: patched.shot_id });
+    setFilmPlaying(false);
     setPreviewing(true);
     setPreviewT(0);
+    setFilmT(filmTAtShot(shots, patched.shot_id));
   }
 
   useEffect(() => {
@@ -1004,13 +1008,13 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         <SpaceViewer
           space={state.space}
           shots={state.shots}
-          currentShotId={
-            filmPlaying
-              ? (sampleFilm(state.shots, filmT)?.shot.shot_id ?? state.currentShotId)
-              : state.currentShotId
-          }
+          currentShotId={playheadShotId}
           previewing={filmPlaying || previewing}
-          previewT={filmPlaying ? (sampleFilm(state.shots, filmT)?.localT ?? 0) : previewT}
+          previewT={
+            filmPlaying || !previewing
+              ? (sampleFilm(state.shots, filmT)?.localT ?? previewT)
+              : previewT
+          }
           dual={dual}
           selectedId={selectedId}
           cloud={cloud}
@@ -1024,17 +1028,12 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
             setPreviewing(false);
             setFilmPlaying((v) => !v);
           }}
-          onPickShot={(id) => {
-            setFilmPlaying(false);
-            dispatch({ type: "selectShot", id });
-            setPreviewT(0);
-            setFilmT(filmTAtShot(state.shots, id));
-          }}
           onSeekFilm={(t) => {
+            const shots = seedShots();
             setFilmT(t);
-            const duration = filmDuration(state.shots) * 1000;
+            const duration = filmDuration(shots) * 1000;
             filmOriginRef.current = performance.now() - t * duration;
-            const hit = sampleFilm(state.shots, t);
+            const hit = sampleFilm(shots, t);
             if (hit) {
               dispatch({ type: "selectShot", id: hit.shot.shot_id });
               setPreviewT(hit.localT);
@@ -1056,12 +1055,13 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
 
         <ShotBoard
           shots={state.shots}
-          currentShotId={state.currentShotId}
+          currentShotId={playheadShotId}
           onSelectShot={(id) => {
             setFilmPlaying(false);
             dispatch({ type: "selectShot", id });
-            setPreviewing(false);
+            setPreviewing(true);
             setPreviewT(0);
+            setFilmT(filmTAtShot(state.shots, id));
           }}
           onPreset={(preset) => applyCatalog(preset)}
         />
