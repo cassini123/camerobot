@@ -73,7 +73,10 @@ export function IntroSplash({ onDone }: { onDone: () => void }) {
   return (
     <div
       className={fading ? "intro out" : "intro"}
-      onClick={beginFade}
+      onClick={(event) => {
+        event.stopPropagation();
+        beginFade();
+      }}
       role="presentation"
     >
       {kind === "mp4" ? (
