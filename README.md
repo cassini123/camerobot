@@ -33,7 +33,13 @@ Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_A
 9. Apply：3D 路径更新。
 10. Export → `yun-jing-project.json`（含 path 与 `robot_hints`，对齐 Camerobot ShotPlan）。
 
-后续硬件仍用仓库内 Python `camerobot/` MVP0；本次导出只做数据桥。
+## 3DGS PLY 为什么是白点
+
+云径原先只画语义代理盒子，没有接高斯溅射渲染器。把 3DGS `.ply` 当普通点云读，只会拿到 xyz，颜色在 `f_dc_*` 球谐系数里，不当 splat 椭球画就是一堆白点。
+
+工作台已接 Spark（`@sparkjsdev/spark`）：点 **3DGS PLY/SPZ** 上传，或 **试渲染器** 加载小体积示例。InteriorGS / Aholo 的 SuperSplat 压缩 PLY、SPZ 都走这条渲染器，不要用 Three.js Points。
+
+大场景请关掉双视口（上传后会自动单视口），并优先用 `.spz` / 压缩 ply，而不是把完整 InteriorGS 原文件塞进浏览器。
 
 > 产品心智：摄影界的智能航空母舰。
 

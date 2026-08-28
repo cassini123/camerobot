@@ -5,6 +5,7 @@ import { Line, OrbitControls } from "@react-three/drei";
 import { useMemo } from "react";
 import type { CameraPath, Shot, SpaceModel, Vec3 } from "@/lib/types";
 import { pathPoints, samplePath } from "@/lib/path-engine";
+import { SplatCloud } from "./SplatCloud";
 
 const TYPE_COLOR: Record<string, string> = {
   building: "#8a6a45",
@@ -105,6 +106,10 @@ export function SpaceViewer({
   previewing,
   previewT,
   dual,
+  splatUrl,
+  splatZUp,
+  showProxy,
+  onSplatStatus,
 }: {
   space: SpaceModel;
   shots: Shot[];
@@ -112,6 +117,10 @@ export function SpaceViewer({
   previewing: boolean;
   previewT: number;
   dual: boolean;
+  splatUrl?: string | null;
+  splatZUp?: boolean;
+  showProxy?: boolean;
+  onSplatStatus?: (status: string) => void;
 }) {
   const current = shots.find((s) => s.shot_id === currentShotId) || shots[0];
   const camPos = current
@@ -119,17 +128,27 @@ export function SpaceViewer({
       ? samplePath(current.path, previewT)
       : current.path.start
     : ([0, 2, 8] as Vec3);
+  const proxy = showProxy !== false;
 
   return (
     <div className="viewer">
-      <span className="viewer-label">3D SPACE · CAMERA PATH</span>
+      <span className="viewer-label">
+        3D SPACE · {splatUrl ? "3DGS SPLAT" : "PROXY HALL"}
+      </span>
       {dual ? <span className="viewer-label pov-label">SHOT POV</span> : null}
       <div className={dual ? "viewer-split" : undefined} style={{ height: "100%" }}>
-        <Canvas shadows camera={{ position: [14, 9, -12], fov: 42 }}>
+        <Canvas
+          shadows={!splatUrl}
+          gl={{ antialias: false, powerPreference: "high-performance" }}
+          camera={{ position: [14, 9, -12], fov: 42 }}
+        >
           <color attach="background" args={["#07080a"]} />
           <ambientLight intensity={0.55} />
           <directionalLight position={[8, 14, 4]} intensity={1.15} castShadow />
-          <HeritageHall space={space} />
+          {proxy ? <HeritageHall space={space} /> : null}
+          {splatUrl ? (
+            <SplatCloud url={splatUrl} zUp={Boolean(splatZUp)} onStatus={onSplatStatus} />
+          ) : null}
           {shots.map((shot) => (
             <PathLine
               key={shot.shot_id}
@@ -160,6 +179,7 @@ export function SpaceViewer({
         </Canvas>
         {dual && current ? (
           <Canvas
+            gl={{ antialias: false }}
             camera={{
               position: camPos,
               fov: Math.max(18, 70 - current.camera.lens * 0.4),
@@ -168,7 +188,7 @@ export function SpaceViewer({
             <color attach="background" args={["#10131a"]} />
             <ambientLight intensity={0.65} />
             <directionalLight position={[6, 10, 2]} intensity={1.15} />
-            <HeritageHall space={space} />
+            {proxy ? <HeritageHall space={space} /> : null}
             <PovRig
               position={camPos}
               target={current.path.target}

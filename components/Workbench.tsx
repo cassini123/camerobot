@@ -116,6 +116,10 @@ export function Workbench() {
   const [previewT, setPreviewT] = useState(0);
   const [showKb, setShowKb] = useState(false);
   const [dual, setDual] = useState(true);
+  const [splatUrl, setSplatUrl] = useState<string | null>(null);
+  const [splatZUp, setSplatZUp] = useState(true);
+  const [showProxy, setShowProxy] = useState(true);
+  const [splatStatus, setSplatStatus] = useState("");
 
   const scene = story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
   const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
@@ -324,6 +328,10 @@ export function Workbench() {
           previewing={previewing}
           previewT={previewT}
           dual={dual}
+          splatUrl={splatUrl}
+          splatZUp={splatZUp}
+          showProxy={showProxy}
+          onSplatStatus={setSplatStatus}
         />
 
         <aside className="col">
@@ -402,10 +410,49 @@ export function Workbench() {
             <button className="btn" onClick={() => analyzeReference()}>
               使用示例 Visual DNA
             </button>
+            <label className="btn" style={{ alignSelf: "center" }}>
+              3DGS PLY/SPZ
+              <input
+                type="file"
+                accept=".ply,.spz,.splat,.ksplat,.sog"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) {
+                    return;
+                  }
+                  if (splatUrl?.startsWith("blob:")) {
+                    URL.revokeObjectURL(splatUrl);
+                  }
+                  const url = URL.createObjectURL(file);
+                  setSplatUrl(url);
+                  setShowProxy(false);
+                  setDual(false);
+                  setSplatStatus(`loading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+                }}
+              />
+            </label>
+            <button
+              className="btn"
+              onClick={() => {
+                setSplatUrl("https://sparkjs.dev/assets/splats/butterfly.spz");
+                setSplatZUp(false);
+                setShowProxy(false);
+              }}
+            >
+              试渲染器
+            </button>
+            <button className="btn" onClick={() => setSplatZUp((v) => !v)}>
+              {splatZUp ? "Z-up" : "Y-up"}
+            </button>
+            <button className="btn" onClick={() => setShowProxy((v) => !v)}>
+              {showProxy ? "代理开" : "代理关"}
+            </button>
           </div>
         </div>
         <div className="dna">
           {state.busy ? <span className="chip">{state.busy}</span> : null}
+          {splatStatus ? <span className="chip">{splatStatus}</span> : null}
           {dnaChips.map((chip) => (
             <span className="chip" key={chip}>
               {chip}
