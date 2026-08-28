@@ -40,6 +40,7 @@ import type {
   Story,
   VisualDNA,
 } from "@/lib/types";
+import { VIRTUPATH_SCENE_PARAM } from "@/lib/library-types";
 
 const SpaceViewer = dynamic(
   () => import("./SpaceViewer").then((m) => m.SpaceViewer),
@@ -276,6 +277,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   const [activeModelId, setActiveModelId] = useState("example");
   const toneInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const appliedSceneRef = useRef<string | null>(null);
   const finishIntro = useCallback(() => setIntroDone(true), []);
 
   useEffect(() => {
@@ -301,6 +303,21 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       return extra.length ? [...cur, ...extra] : cur;
     });
   }, [assets]);
+
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get(VIRTUPATH_SCENE_PARAM);
+    if (!wanted || appliedSceneRef.current === wanted) {
+      return;
+    }
+    const item = library.find((entry) => entry.id === wanted);
+    if (!item) {
+      return;
+    }
+    appliedSceneRef.current = wanted;
+    applyLibrary(item);
+    // applyLibrary is recreated each render; we only auto-apply once per scene id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [library]);
 
   const scene = state.story.scenes.find((s) => s.scene_id === state.currentSceneId)!;
   const currentShot = state.shots.find((s) => s.shot_id === state.currentShotId);
@@ -531,10 +548,11 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         throw new Error(`无法下载场景（${res.status}）`);
       }
       const blob = await res.blob();
-      const ext = url.toLowerCase().includes(".ply") ? "ply" : "spz";
+      const extMatch = url.toLowerCase().match(/\.(ply|spz|splat|ksplat|glb|gltf)(?:$|\?)/);
+      const ext = extMatch?.[1] ?? "spz";
       const file = new File([blob], `${item.name}.${ext}`, { type: "application/octet-stream" });
       setLibrary((cur) => cur.map((it) => (it.id === item.id ? { ...it, file } : it)));
-      await ingestModel(file, item.id, "generated");
+      await ingestModel(file, item.id, item.source);
     } catch (error) {
       const message = error instanceof Error ? error.message : "场景载入失败";
       setLibrary((cur) =>
@@ -556,7 +574,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       void loadBundledExample(item);
       return;
     }
-    if (item.source === "generated" && !item.ready) {
+    if ((item.source === "generated" || item.remoteUrl || item.spzUrl) && !item.ready) {
       void loadRemoteModel(item);
       return;
     }

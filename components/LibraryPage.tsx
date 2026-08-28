@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { AssetKind } from "@/lib/library-types";
+import { virtupathHrefForAsset, type AssetKind } from "@/lib/library-types";
 import { useLibrary } from "./LibraryProvider";
 
 const FILTERS: { id: "all" | AssetKind; label: string }[] = [
@@ -60,9 +60,21 @@ export function LibraryPage() {
         {shown.length === 0 ? (
           <p className="lib-empty">还没有素材。上传或在 VirtuPath 里生成后会自动出现。</p>
         ) : (
-          shown.map((item) => (
+          shown.map((item) => {
+            const virtupath = virtupathHrefForAsset(item);
+            return (
             <article key={item.id} className="lib-card">
-              {item.kind === "video" && item.previewUrl ? (
+              {virtupath ? (
+                <Link href={virtupath} className="lib-thumb">
+                  {item.kind === "video" && item.previewUrl ? (
+                    <video src={item.previewUrl} muted />
+                  ) : item.previewUrl ? (
+                    <img src={item.previewUrl} alt="" />
+                  ) : (
+                    <div className="lib-ph">{item.kind}</div>
+                  )}
+                </Link>
+              ) : item.kind === "video" && item.previewUrl ? (
                 <video src={item.previewUrl} muted />
               ) : item.previewUrl ? (
                 <img src={item.previewUrl} alt="" />
@@ -74,18 +86,26 @@ export function LibraryPage() {
                 {item.kind} · {item.source} · {item.sizeLabel}
               </small>
               {item.prompt ? <p>{item.prompt}</p> : null}
-              {item.remoteUrl ? (
-                <a href={item.remoteUrl} target="_blank" rel="noreferrer">
-                  {item.kind === "scene" ? "下载 SPZ" : "下载模型"}
-                </a>
-              ) : null}
-              {item.plyUrl ? (
-                <a href={item.plyUrl} target="_blank" rel="noreferrer">
-                  下载 PLY
-                </a>
-              ) : null}
+              <div className="lib-actions">
+                {virtupath ? (
+                  <Link className="btn primary" href={virtupath}>
+                    在 VirtuPath 使用
+                  </Link>
+                ) : null}
+                {item.remoteUrl ? (
+                  <a href={item.remoteUrl} target="_blank" rel="noreferrer">
+                    {item.kind === "scene" ? "下载 SPZ" : "下载"}
+                  </a>
+                ) : null}
+                {item.plyUrl ? (
+                  <a href={item.plyUrl} target="_blank" rel="noreferrer">
+                    下载 PLY
+                  </a>
+                ) : null}
+              </div>
             </article>
-          ))
+            );
+          })
         )}
       </div>
     </div>

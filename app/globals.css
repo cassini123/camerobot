@@ -1680,6 +1680,23 @@ input[type="range"]::-moz-range-thumb {
   font-size: 11px;
 }
 
+.lib-thumb {
+  display: block;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.lib-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lib-actions a {
+  font-size: 12px;
+}
+
 .lib-empty {
   color: var(--muted);
 }
