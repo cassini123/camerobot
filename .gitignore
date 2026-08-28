@@ -20,3 +20,7 @@ example/*.PLY
 example/*.pcd
 example/*.splat
 example/*.spz
+example/*.plz
+example/*.sog
+example/*.zip
+example/*.rad

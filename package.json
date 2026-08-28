@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "splat:spz": "bash example/to-spz.sh"
   },
   "dependencies": {
     "@manycore/aholo-sdk-asset": "^1.2.0",

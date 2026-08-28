@@ -2,30 +2,51 @@
 
 Local 3D reconstruction used as a space example for Yunjing / Camerobot.
 
-| File | Size | Format |
-| --- | --- | --- |
-| [`model.ply`](./model.ply) | 3.29 GB (`3528201479` bytes) | 3D Gaussian Splatting PLY |
-| [`../public/example/model.ply`](../public/example/model.ply) | 2.6 MB | xyz + RGB preview (180,121 points) |
+**If you already have both PLY and SPZ: send / use the SPZ.** Do not reconvert.
+The original 3.29GB Gaussian PLY is the archive; VirtuPath on the web loads SPZ.
 
-The Drive file is binary little-endian, **14,950,000** Gaussians (`x/y/z`, SH
-`f_dc_*` / `f_rest_*`, `opacity`, `scale_*`, `rot_*`). GitHub and Vercel cannot
-host 3.3 GB. VirtuPath **Apply → Example · model.ply** streams
-`example/model.ply` from `/api/example-model` (Spark `url` + paged). The 2.6 MB
-file under `public/example/model.ply` is **not** used as the example scan.
+| File | Size | Format | Use |
+| --- | --- | --- | --- |
+| [`model.spz`](./model.spz) | typically 80–400 MB | Niantic 3DGS | **web / VirtuPath** |
+| [`model.ply`](./model.ply) | 3.29 GB | uncompressed 3DGS | archive / re-export only |
+| [`../public/example/model.ply`](../public/example/model.ply) | 2.6 MB | xyz + RGB preview | not the scan |
 
-Keep the full `example/model.ply` on disk (or fetch it) for local work. It is
-gitignored. On Vercel, set `EXAMPLE_PLY_URL` to a public 3.29GB PLY, then
-Redeploy.
+VirtuPath looks for, in order:
 
-## Fetch the full scan
+`example/model.spz` → `model.plz` → `model.sog` → `model.zip` → `model.rad`
+
+On Vercel set `EXAMPLE_SPLAT_URL` to a public **SPZ** (R2 / S3). Do not point it at the 3.29GB PLY.
+
+## Drop in your SPZ
+
+Cursor chat cannot attach `.spz`. Do one of:
+
+1. Drag the file onto the VirtuPath window (file picker: choose **All files**).
+2. Paste a Google Drive **Anyone with the link** URL in the agent chat — then:
+   `./example/fetch-spz.sh 'https://drive.google.com/file/d/…/view'`
+3. `cp /path/to/your.spz example/model.spz` on the machine running `npm run dev`.
+
+
+```bash
+cp /path/to/your.spz example/model.spz
+npm run dev
+```
+
+Then VirtuPath → Apply **Example · 扫描**. Or upload the SPZ in the workbench.
+
+## Convert PLY → SPZ (only if you do not have SPZ)
+
+Needs ~16GB RAM for a 3GB Gaussian PLY. Keeps spherical harmonics.
+
+```bash
+npm run splat:spz
+# or: ./example/to-spz.sh /path/to/model.ply example/model.spz
+```
+
+## Fetch the full PLY archive
 
 ```bash
 ./example/fetch-model.sh
 ```
 
-Source (Google Drive, public link):
-
 https://drive.google.com/file/d/1dER19eZQjYYYUvTwdxEmnOAQIl9JLgcx/view?usp=drive_link
-
-The script writes `example/model.ply` via `gdown` (handles Drive's large-file
-virus-scan interstitial). Re-run with `--force` to replace an existing file.

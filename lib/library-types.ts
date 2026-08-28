@@ -26,7 +26,7 @@ export function inferAssetKind(file: File, hint?: AssetKind): AssetKind {
     return "video";
   }
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  if (["ply", "spz", "splat", "ksplat"].includes(ext)) {
+  if (["ply", "plz", "spz", "sog", "zip", "rad", "splat", "ksplat"].includes(ext)) {
     return "scene";
   }
   return "object";

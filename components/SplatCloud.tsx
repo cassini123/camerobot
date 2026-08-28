@@ -14,6 +14,7 @@ type Disposable = {
   position: { set: (x: number, y: number, z: number) => void };
   updateMatrixWorld?: (force?: boolean) => void;
   raycast?: () => void;
+  initialized?: Promise<unknown>;
 };
 
 function applyFit(mesh: Disposable, fit: SceneSplat["fit"]) {
@@ -49,6 +50,7 @@ export function SplatCloud({
     let cancelled = false;
     let spark: Object3D | null = null;
     let mesh: Disposable | null = null;
+    let objectUrl: string | null = null;
 
     (async () => {
       const { SparkRenderer, SplatMesh } = await import("@sparkjsdev/spark");
@@ -59,24 +61,18 @@ export function SplatCloud({
         renderer: gl,
         onDirty: () => invalidate(),
       }) as unknown as Object3D;
-      const options: {
-        url?: string;
-        fileBytes?: ArrayBuffer;
-        fileName: string;
-        lod: boolean;
-        paged: boolean;
-        raycastable: boolean;
-        onLoad: (loaded: unknown) => void;
-      } = {
+      const full = splat.quality !== "preview";
+      const options: Record<string, unknown> = {
         fileName: splat.fileName,
-        lod: true,
-        paged: splat.paged ?? Boolean(splat.url),
+        lod: full,
+        nonLod: full,
+        paged: splat.paged === true,
         raycastable: false,
-        onLoad: (loaded) => {
+        onLoad: (loaded: unknown) => {
           if (!splat.autoFit) {
             return;
           }
-          const node = loaded as unknown as Disposable & Object3D;
+          const node = loaded as Disposable & Object3D;
           node.updateMatrixWorld?.(true);
           const box = new Box3().setFromObject(node);
           if (box.isEmpty()) {
@@ -95,8 +91,10 @@ export function SplatCloud({
       };
       if (splat.url) {
         options.url = splat.url;
-      }
-      if (splat.fileBytes) {
+      } else if (splat.file) {
+        objectUrl = URL.createObjectURL(splat.file);
+        options.url = objectUrl;
+      } else if (splat.fileBytes) {
         options.fileBytes = splat.fileBytes;
       }
       mesh = new SplatMesh(options) as unknown as Disposable;
@@ -114,6 +112,10 @@ export function SplatCloud({
       disableRaycast(spark);
       disableRaycast(mesh as unknown as Object3D);
       invalidate();
+      await mesh.initialized;
+      if (cancelled) {
+        return;
+      }
       onReadyRef.current?.();
     })().catch((error: unknown) => {
       console.error("Spark splat load failed", error);
@@ -129,6 +131,9 @@ export function SplatCloud({
       spark?.removeFromParent?.();
       mesh?.dispose?.();
       (spark as Disposable | null)?.dispose?.();
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, [splat, gl, scene, invalidate]);
 

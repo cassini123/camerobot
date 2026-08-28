@@ -15,13 +15,9 @@ import { applyPresetToShot, type CatalogPreset } from "@/lib/shot-catalog";
 import { filmDuration, filmTAtShot, sampleFilm } from "@/lib/film-timeline";
 import { deepMerge, setPath } from "@/lib/patch";
 import {
-  FULL_EXAMPLE_GAUSSIANS,
-  FULL_EXAMPLE_PLY_BYTES,
   FULL_EXAMPLE_PLY_URL,
   exampleSpace,
   resolveSpaceObject,
-  SCENE_MODEL_ACCEPT,
-  SCENE_MODEL_FORMATS,
 } from "@/lib/space-objects";
 import { formatBytes } from "@/lib/ply-stream";
 import { IDENTITY_FIT } from "@/lib/point-cluster";
@@ -32,6 +28,7 @@ import { ShotBoard } from "./ShotBoard";
 import { useLibrary } from "./LibraryProvider";
 import { detectGenerateIntent } from "@/lib/generate-intent";
 import type { SceneSplat } from "@/lib/scene-visual";
+import { WEB_HQ_HINT, ensureSplatFileName, extOf, isGoogleDriveUrl, sparkHintName, sparkNativeMeta } from "@/lib/splat-formats";
 import type {
   DirectorChange,
   DirectorResponse,
@@ -253,8 +250,8 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     },
     {
       id: "example-ply",
-      name: "Example · model.ply",
-      sizeLabel: `${formatBytes(FULL_EXAMPLE_PLY_BYTES)} · ${FULL_EXAMPLE_GAUSSIANS.toLocaleString("en")} Gaussians`,
+      name: "Example · 扫描",
+      sizeLabel: "优先 PLZ / SPZ · 不要用 3.29GB PLY",
       source: "bundled",
       ready: false,
     },
@@ -262,6 +259,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
   const [activeModelId, setActiveModelId] = useState("example");
   const toneInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
+  const [remoteUrl, setRemoteUrl] = useState("");
   const finishIntro = useCallback(() => setIntroDone(true), []);
 
   useEffect(() => {
@@ -361,7 +359,8 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function ingestModel(file: File, existingId?: string) {
+  async function ingestModel(raw: File, existingId?: string) {
+    const file = await ensureSplatFileName(raw);
     const id = existingId ?? `${file.name}-${file.size}-${Date.now()}`;
     if (!existingId) {
       setLibrary((cur) => [
@@ -379,7 +378,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     void addFromFile(file, { kind: "scene", source: existingId === "example-ply" ? "bundled" : "upload" });
     setToast({
       kind: "ok",
-      text: `开始解析 ${file.name}（${formatBytes(file.size)}）。大文件只抽样读取，不会整包进内存。`,
+      text: `开始解析 ${file.name}（${formatBytes(file.size)}）。压缩 3DGS（PLZ/SPZ）会整包高质量解码；超大高斯 PLY 只会出预览。`,
     });
     dispatch({ type: "busy", busy: `解析 ${file.name}…` });
     try {
@@ -426,7 +425,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       );
       applyLibrary({
         id,
-        name: existingId === "example-ply" ? "Example · model.ply" : file.name,
+        name: existingId === "example-ply" ? "Example · 扫描" : file.name,
         sizeLabel: formatBytes(file.size),
         source: existingId === "example-ply" ? "bundled" : "upload",
         file,
@@ -435,16 +434,14 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         geometry,
         splat: nextSplat,
       });
+      const preview = nextSplat?.quality === "preview";
       setToast({
-        kind: "ok",
-        text:
-          existingId === "example-ply"
-            ? nextSplat
-              ? "已载入 Example · model.ply（3DGS 原场景）。"
-              : "已载入 Example · model.ply。"
-            : nextSplat
-              ? `上传成功：${file.name}。已用原场景 3DGS 渲染并加入左侧模型栏。`
-              : `上传成功：${file.name}。已加入左侧模型栏，可随时 Apply。`,
+        kind: preview ? "err" : "ok",
+        text: preview
+          ? `${file.name} 已载入抽样预览，不是 3DGS 原画质。${WEB_HQ_HINT}`
+          : existingId === "example-ply"
+            ? "已载入示例扫描（压缩 3DGS）。"
+            : `上传成功：${file.name}。已按 3DGS 高质量加入模型栏。`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "模型解析失败";
@@ -458,9 +455,38 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     dispatch({ type: "busy", busy: null });
   }
 
+  const ingestModelRef = useRef(ingestModel);
+  ingestModelRef.current = ingestModel;
+
+  useEffect(() => {
+    const onDragOver = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) {
+        event.preventDefault();
+      }
+    };
+    const onDrop = (event: DragEvent) => {
+      const dropped = event.dataTransfer?.files?.[0];
+      if (!dropped) {
+        return;
+      }
+      if (dropped.type.startsWith("image/") || dropped.type.startsWith("video/")) {
+        return;
+      }
+      event.preventDefault();
+      setModelOpen(false);
+      void ingestModelRef.current(dropped);
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
   async function loadBundledExample(item: LibraryItem) {
-    dispatch({ type: "busy", busy: "载入 Example · model.ply（3.29GB）…" });
-    setToast({ kind: "ok", text: "正在流式载入 3DGS 原扫描…" });
+    dispatch({ type: "busy", busy: "载入示例扫描…" });
+    setToast({ kind: "ok", text: "正在检查 example/ 下的 PLZ · SPZ · SOG…" });
     try {
       const meta = await fetch(`${FULL_EXAMPLE_PLY_URL}?meta=1`).then(async (res) => {
         const json = (await res.json()) as {
@@ -468,23 +494,34 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           bytes?: number;
           expectedBytes?: number;
           hint?: string;
+          fileName?: string;
+          format?: string;
+          quality?: string;
+          paged?: boolean;
+          splatUrl?: string;
         };
         return json;
       });
-      if (!meta.complete) {
-        await fetch(FULL_EXAMPLE_PLY_URL, { method: "POST" }).catch(() => undefined);
-        throw new Error(
-          meta.hint ||
-            `完整扫描尚未就绪（${formatBytes(meta.bytes ?? 0)} / ${formatBytes(meta.expectedBytes ?? FULL_EXAMPLE_PLY_BYTES)}）。本地运行 ./example/fetch-model.sh，或设置 EXAMPLE_PLY_URL。`,
-        );
+      if (!meta.complete || meta.quality !== "full") {
+        throw new Error(meta.hint || WEB_HQ_HINT);
       }
+      const fileName = sparkHintName(meta.fileName || "model.plz");
       const nextSplat: SceneSplat = {
-        url: FULL_EXAMPLE_PLY_URL,
-        fileName: "model.ply",
-        paged: true,
+        url: meta.splatUrl || FULL_EXAMPLE_PLY_URL,
+        fileName,
+        paged: meta.paged === true,
         zUp: true,
         autoFit: true,
         fit: IDENTITY_FIT,
+        quality: "full",
+      };
+      const space: SpaceModel = {
+        ...defaultSpace,
+        kind: "upload",
+        format: meta.format || extOf(fileName) || "plz",
+        fileName,
+        model: fileName,
+        description: `Example · ${fileName} · ${formatBytes(meta.bytes ?? 0)}`,
       };
       setLibrary((cur) =>
         cur.map((it) =>
@@ -493,14 +530,9 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
                 ...it,
                 ready: true,
                 splat: nextSplat,
-                space: {
-                  ...defaultSpace,
-                  kind: "upload",
-                  format: "ply",
-                  fileName: "model.ply",
-                  model: "model.ply",
-                  description: `Example · model.ply · ${formatBytes(FULL_EXAMPLE_PLY_BYTES)} · ${FULL_EXAMPLE_GAUSSIANS.toLocaleString("en")} Gaussians`,
-                },
+                space,
+                name: `Example · ${fileName}`,
+                sizeLabel: formatBytes(meta.bytes ?? 0),
               }
             : it,
         ),
@@ -510,18 +542,12 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       setActiveModelId(item.id);
       dispatch({
         type: "model",
-        name: "Example · model.ply",
-        space: {
-          ...defaultSpace,
-          kind: "upload",
-          format: "ply",
-          fileName: "model.ply",
-          model: "model.ply",
-        },
+        name: `Example · ${fileName}`,
+        space,
       });
       setToast({
         kind: "ok",
-        text: "已载入 Example · model.ply（3.29GB 3DGS 原场景）。",
+        text: `已载入 ${fileName}（压缩 3DGS，网页高质量）。`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "扫描载入失败";
@@ -533,6 +559,59 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
       return;
     }
     dispatch({ type: "busy", busy: null });
+  }
+
+  async function ingestRemoteUrl(raw: string) {
+    const url = raw.trim();
+    if (!url) {
+      return;
+    }
+    if (isGoogleDriveUrl(url)) {
+      setToast({
+        kind: "err",
+        text: "网页打不开 Google Drive 的扫描页。把「任何人可查看」的链接发到对话里，或把 .spz 直接拖进这个窗口。",
+      });
+      return;
+    }
+    const leaf = url.split("?")[0]?.split("/").pop() || "scene.spz";
+    const fileName = sparkHintName(leaf);
+    const ext = extOf(leaf);
+    const native = sparkNativeMeta(ext) ?? (ext === "ply" ? { zUp: true, paged: false, label: "PLY" } : null);
+    if (!native && ext !== "splat") {
+      setToast({ kind: "err", text: "链接需要以 .plz / .spz / .sog / .rad / .splat 结尾。" });
+      return;
+    }
+    const id = `url-${fileName}-${Date.now()}`;
+    const nextSplat: SceneSplat = {
+      url,
+      fileName,
+      paged: native?.paged === true,
+      zUp: native?.zUp ?? true,
+      autoFit: true,
+      fit: IDENTITY_FIT,
+      quality: "full",
+    };
+    const space: SpaceModel = {
+      ...defaultSpace,
+      kind: "upload",
+      format: ext || "plz",
+      fileName,
+      model: fileName,
+      description: `${fileName} · 远程 ${native?.label ?? "3DGS"}`,
+    };
+    const item: LibraryItem = {
+      id,
+      name: fileName,
+      sizeLabel: "URL",
+      source: "upload",
+      ready: true,
+      space,
+      splat: nextSplat,
+    };
+    setLibrary((cur) => [...cur, item]);
+    applyLibrary(item);
+    setToast({ kind: "ok", text: `正在从 URL 载入 ${fileName}（CDN 压缩包最稳）。` });
+    setModelOpen(false);
   }
 
   function applyLibrary(item: LibraryItem) {
@@ -1119,7 +1198,6 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         <input
           ref={modelInputRef}
           type="file"
-          accept={SCENE_MODEL_ACCEPT}
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -1149,8 +1227,26 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         {modelOpen ? (
           <div className="model-menu" role="menu">
             <button type="button" onClick={() => modelInputRef.current?.click()}>
-              + 上传模型
-              <small>{SCENE_MODEL_FORMATS}</small>
+              + 上传 SPZ
+              <small>对话框请选「所有文件」，或直接把 .spz 拖进窗口</small>
+            </button>
+            <label className="model-url">
+              或贴 PLZ / SPZ 链接
+              <input
+                value={remoteUrl}
+                placeholder="https://…/scene.plz"
+                onChange={(e) => setRemoteUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void ingestRemoteUrl(remoteUrl);
+                  }
+                }}
+              />
+            </label>
+            <button type="button" onClick={() => void ingestRemoteUrl(remoteUrl)}>
+              从 URL 载入
+              <small>适合 Vercel：把压缩包放 R2 / S3</small>
             </button>
             <button
               type="button"

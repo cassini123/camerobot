@@ -12,12 +12,17 @@ import {
   type FitTransform,
 } from "./point-cluster";
 import { formatBytes, isGaussianPly, readPlyHeader, samplePlyFile } from "./ply-stream";
-import { SPARK_MAX_BYTES, type SceneVisual } from "./scene-visual";
+import { SPARK_MAX_BYTES, type SceneVisual, type SplatQuality } from "./scene-visual";
+import {
+  SPARK_STREAM_MAX_BYTES,
+  canSparkDecodeGaussianPly,
+  canSparkStreamCompressed,
+  extOf,
+  sparkHintName,
+  sparkNativeMeta,
+  WEB_HQ_HINT,
+} from "./splat-formats";
 import type { SpaceModel } from "./types";
-
-function extOf(name: string): string {
-  return name.split(".").pop()?.toLowerCase() ?? "";
-}
 
 function geometryFromArrays(
   positions: Float32Array,
@@ -206,19 +211,32 @@ async function loadGltf(file: File): Promise<{ space: SpaceModel; visual: SceneV
   };
 }
 
-async function sparkVisual(
-  file: File,
-  fileName: string,
-  zUp: boolean,
-  fit: FitTransform,
-  geometry: THREE.BufferGeometry | null,
-  autoFit = false,
-): Promise<SceneVisual> {
-  const fileBytes = (await file.arrayBuffer()).slice(0);
+function sparkVisual(input: {
+  file?: File;
+  fileBytes?: ArrayBuffer;
+  url?: string;
+  fileName: string;
+  zUp: boolean;
+  fit: FitTransform;
+  geometry: THREE.BufferGeometry | null;
+  autoFit?: boolean;
+  paged?: boolean;
+  quality?: SplatQuality;
+}): SceneVisual {
   return {
     mode: "spark",
-    geometry,
-    splat: { fileBytes, fileName, zUp, fit, autoFit },
+    geometry: input.geometry,
+    splat: {
+      file: input.file,
+      fileBytes: input.fileBytes,
+      url: input.url,
+      fileName: sparkHintName(input.fileName),
+      zUp: input.zUp,
+      fit: input.fit,
+      autoFit: input.autoFit,
+      paged: input.paged ?? false,
+      quality: input.quality ?? "full",
+    },
   };
 }
 
@@ -228,15 +246,30 @@ export async function loadUploadedScene(
 ): Promise<{ space: SpaceModel; visual: SceneVisual }> {
   const ext = extOf(file.name);
   onProgress?.(0.01, `读取 ${file.name}（${formatBytes(file.size)}）`);
-  if (ext === "spz") {
-    if (file.size > SPARK_MAX_BYTES) {
-      throw new Error("SPZ 超过 800MB，请导出为较小的 SPZ 或 PLY");
+  const native = sparkNativeMeta(ext);
+  if (native) {
+    if (!canSparkStreamCompressed(file.size)) {
+      throw new Error(
+        `${native.label} 超过 ${formatBytes(SPARK_STREAM_MAX_BYTES)} 流式上限。请再压缩一档，或切 SOG / SPZ。`,
+      );
     }
-    onProgress?.(0.4, "载入 3DGS SPZ…");
-    const visual = await sparkVisual(file, file.name, true, IDENTITY_FIT, null, true);
+    onProgress?.(0.4, `载入 ${native.label}（网页高质量）…`);
     return {
-      space: placeholderSpace(file.name, "spz", `${file.name} · 3DGS SPZ`),
-      visual,
+      space: placeholderSpace(
+        file.name,
+        ext,
+        `${file.name} · ${native.label} · ${formatBytes(file.size)}`,
+      ),
+      visual: sparkVisual({
+        file,
+        fileName: file.name,
+        zUp: native.zUp,
+        fit: IDENTITY_FIT,
+        geometry: null,
+        autoFit: true,
+        paged: native.paged,
+        quality: "full",
+      }),
     };
   }
   if (ext === "glb" || ext === "gltf") {
@@ -244,17 +277,6 @@ export async function loadUploadedScene(
       throw new Error("GLB/GLTF 超过 800MB，请导出为 binary PLY 后再上传");
     }
     return loadGltf(file);
-  }
-  if (ext === "ksplat") {
-    if (file.size > SPARK_MAX_BYTES) {
-      throw new Error("KSPLAT 过大，请导出为 PLY 或 SPZ");
-    }
-    onProgress?.(0.4, "载入 3DGS KSPLAT…");
-    const visual = await sparkVisual(file, file.name, false, IDENTITY_FIT, null, true);
-    return {
-      space: placeholderSpace(file.name, "ksplat", `${file.name} · 3DGS KSPLAT`),
-      visual,
-    };
   }
   if (ext === "splat") {
     if (file.size > SPARK_MAX_BYTES) {
@@ -269,11 +291,14 @@ export async function loadUploadedScene(
     const { geometry, fit } = geometryFromArrays(positions, colors);
     return {
       space: spaceFromGeometry(file.name, ext, geometry),
-      visual: {
-        mode: "spark",
+      visual: sparkVisual({
+        fileBytes: bytes.slice(0),
+        fileName: file.name,
+        zUp,
+        fit,
         geometry,
-        splat: { fileBytes: bytes.slice(0), fileName: file.name, zUp, fit },
-      },
+        quality: "full",
+      }),
     };
   }
   const header = await readPlyHeader(file);
@@ -290,45 +315,38 @@ export async function loadUploadedScene(
   const { geometry, fit } = geometryFromArrays(sampled.positions, colors);
   const space = spaceFromGeometry(file.name, ext || "ply", geometry);
   space.description = `${file.name} · ${formatBytes(file.size)} · 从 ${sampled.total} 点采样 ${sampled.kept} 点`;
-  if (file.size <= SPARK_MAX_BYTES && gaussian) {
-    const visual = await sparkVisual(file, file.name, zUp, fit, geometry);
+  if (gaussian && canSparkDecodeGaussianPly(file.size)) {
     space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS 原场景`;
-    return { space, visual };
-  }
-  if (gaussian) {
-    const url = URL.createObjectURL(file);
-    space.description = `${file.name} · ${formatBytes(file.size)} · 3DGS 原场景（流式）`;
     return {
       space,
-      visual: {
-        mode: "spark",
+      visual: sparkVisual({
+        file,
+        fileName: file.name,
+        zUp,
+        fit,
         geometry,
-        splat: {
-          url,
-          fileName: file.name,
-          paged: true,
-          zUp,
-          fit,
-          autoFit: true,
-        },
-      },
+        quality: "full",
+      }),
     };
   }
   const splatBytes = rgbCloudToSplat(
     geometry.getAttribute("position").array as Float32Array,
     geometry.getAttribute("color").array as Float32Array,
   );
+  if (gaussian) {
+    space.description = `${file.name} · ${formatBytes(file.size)} · 预览 ${sampled.kept} 点（原高斯 PLY 过大，网页无法高质量解码）`;
+  }
   return {
     space,
-    visual: {
-      mode: "spark",
+    visual: sparkVisual({
+      fileBytes: splatBytes,
+      fileName: `${file.name.replace(/\.[^.]+$/, "")}.splat`,
+      zUp: false,
+      fit: IDENTITY_FIT,
       geometry,
-      splat: {
-        fileBytes: splatBytes,
-        fileName: `${file.name.replace(/\.[^.]+$/, "")}.splat`,
-        zUp: false,
-        fit: IDENTITY_FIT,
-      },
-    },
+      quality: "preview",
+    }),
   };
 }
+
+export { WEB_HQ_HINT };

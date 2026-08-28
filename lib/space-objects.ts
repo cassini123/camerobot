@@ -1,9 +1,9 @@
 import type { SpaceModel, SpaceObject } from "./types";
 
 export const SCENE_MODEL_ACCEPT =
-  ".ply,.spz,.splat,.ksplat,.glb,.gltf,model/gltf-binary,model/gltf+json,application/octet-stream";
+  ".ply,.plz,.spz,.sog,.zip,.rad,.splat,.ksplat,.glb,.gltf,model/gltf-binary,model/gltf+json,application/octet-stream,application/zip";
 
-export const SCENE_MODEL_FORMATS = "PLY · GLB · GLTF · SPLAT · KSPLAT · SPZ";
+export const SCENE_MODEL_FORMATS = "SPZ · PLZ · SOG · RAD · PLY · SPLAT · GLB";
 
 /** Legacy 2.6MB RGB preview. Do not use for Apply — the scan is 3.29GB. */
 export const BUNDLED_EXAMPLE_PLY = "/example/model.ply";
