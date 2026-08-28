@@ -19,6 +19,14 @@ On Vercel set `EXAMPLE_SPLAT_URL` to a public **SPZ** (R2 / S3). Do not point it
 
 ## Drop in your SPZ
 
+Cursor chat cannot attach `.spz`. Do one of:
+
+1. Drag the file onto the VirtuPath window (file picker: choose **All files**).
+2. Paste a Google Drive **Anyone with the link** URL in the agent chat — then:
+   `./example/fetch-spz.sh 'https://drive.google.com/file/d/…/view'`
+3. `cp /path/to/your.spz example/model.spz` on the machine running `npm run dev`.
+
+
 ```bash
 cp /path/to/your.spz example/model.spz
 npm run dev

@@ -154,4 +154,12 @@ describe("splat formats", () => {
     expect(visual?.splat?.file).toBe(file);
     expect(visual?.splat?.paged).toBe(false);
   });
+
+  it("renames gzip blobs without an extension to .spz", async () => {
+    const { ensureSplatFileName } = await import("../lib/splat-formats");
+    const gzip = new Uint8Array([0x1f, 0x8b, 0x08, 0, 1, 2, 3, 4]);
+    const file = new File([gzip], "scan");
+    const named = await ensureSplatFileName(file);
+    expect(named.name).toBe("scan.spz");
+  });
 });

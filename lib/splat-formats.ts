@@ -73,3 +73,38 @@ export function canSparkStreamCompressed(bytes: number): boolean {
 
 export const WEB_HQ_HINT =
   "网页要出 3DGS 高质量，请用 PLZ / SPZ / SOG（通常几十到几百 MB），不要直接丢数 GB 的高斯 PLY。做成 App 也解不开浏览器显存；压缩格式才是正路。";
+
+/** Windows/macOS file dialogs often hide .spz; sniff gzip/NGSP/PLY magic. */
+export async function ensureSplatFileName(file: File): Promise<File> {
+  const ext = extOf(file.name);
+  if (isSceneModelExt(ext)) {
+    return file;
+  }
+  const head = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+  const ascii = new TextDecoder("latin1").decode(head);
+  const base = (file.name.replace(/\.[^.]+$/, "") || "scene").trim() || "scene";
+  const rename = (suffix: string) =>
+    new File([file], `${base}.${suffix}`, { type: "application/octet-stream" });
+  if (head[0] === 0x1f && head[1] === 0x8b) {
+    return rename("spz");
+  }
+  if (ascii.startsWith("NGSP") || ascii.startsWith("SPZ")) {
+    return rename("spz");
+  }
+  if (ascii.startsWith("ply") || ascii.startsWith("PLY")) {
+    return rename("ply");
+  }
+  if (head[0] === 0x50 && head[1] === 0x4b) {
+    return rename("zip");
+  }
+  return rename("spz");
+}
+
+export function isGoogleDriveUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "drive.google.com" || host === "docs.google.com";
+  } catch {
+    return false;
+  }
+}

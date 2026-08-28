@@ -18,8 +18,6 @@ import {
   FULL_EXAMPLE_PLY_URL,
   exampleSpace,
   resolveSpaceObject,
-  SCENE_MODEL_ACCEPT,
-  SCENE_MODEL_FORMATS,
 } from "@/lib/space-objects";
 import { formatBytes } from "@/lib/ply-stream";
 import { IDENTITY_FIT } from "@/lib/point-cluster";
@@ -30,7 +28,7 @@ import { ShotBoard } from "./ShotBoard";
 import { useLibrary } from "./LibraryProvider";
 import { detectGenerateIntent } from "@/lib/generate-intent";
 import type { SceneSplat } from "@/lib/scene-visual";
-import { WEB_HQ_HINT, extOf, sparkHintName, sparkNativeMeta } from "@/lib/splat-formats";
+import { WEB_HQ_HINT, ensureSplatFileName, extOf, isGoogleDriveUrl, sparkHintName, sparkNativeMeta } from "@/lib/splat-formats";
 import type {
   DirectorChange,
   DirectorResponse,
@@ -361,7 +359,8 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function ingestModel(file: File, existingId?: string) {
+  async function ingestModel(raw: File, existingId?: string) {
+    const file = await ensureSplatFileName(raw);
     const id = existingId ?? `${file.name}-${file.size}-${Date.now()}`;
     if (!existingId) {
       setLibrary((cur) => [
@@ -456,6 +455,35 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     dispatch({ type: "busy", busy: null });
   }
 
+  const ingestModelRef = useRef(ingestModel);
+  ingestModelRef.current = ingestModel;
+
+  useEffect(() => {
+    const onDragOver = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) {
+        event.preventDefault();
+      }
+    };
+    const onDrop = (event: DragEvent) => {
+      const dropped = event.dataTransfer?.files?.[0];
+      if (!dropped) {
+        return;
+      }
+      if (dropped.type.startsWith("image/") || dropped.type.startsWith("video/")) {
+        return;
+      }
+      event.preventDefault();
+      setModelOpen(false);
+      void ingestModelRef.current(dropped);
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
   async function loadBundledExample(item: LibraryItem) {
     dispatch({ type: "busy", busy: "载入示例扫描…" });
     setToast({ kind: "ok", text: "正在检查 example/ 下的 PLZ · SPZ · SOG…" });
@@ -538,7 +566,14 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
     if (!url) {
       return;
     }
-    const leaf = url.split("?")[0]?.split("/").pop() || "scene.plz";
+    if (isGoogleDriveUrl(url)) {
+      setToast({
+        kind: "err",
+        text: "网页打不开 Google Drive 的扫描页。把「任何人可查看」的链接发到对话里，或把 .spz 直接拖进这个窗口。",
+      });
+      return;
+    }
+    const leaf = url.split("?")[0]?.split("/").pop() || "scene.spz";
     const fileName = sparkHintName(leaf);
     const ext = extOf(leaf);
     const native = sparkNativeMeta(ext) ?? (ext === "ply" ? { zUp: true, paged: false, label: "PLY" } : null);
@@ -1163,7 +1198,6 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         <input
           ref={modelInputRef}
           type="file"
-          accept={SCENE_MODEL_ACCEPT}
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -1193,8 +1227,8 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
         {modelOpen ? (
           <div className="model-menu" role="menu">
             <button type="button" onClick={() => modelInputRef.current?.click()}>
-              + 上传模型
-              <small>{SCENE_MODEL_FORMATS}</small>
+              + 上传 SPZ
+              <small>对话框请选「所有文件」，或直接把 .spz 拖进窗口</small>
             </button>
             <label className="model-url">
               或贴 PLZ / SPZ 链接
