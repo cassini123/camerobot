@@ -15,7 +15,7 @@ const plex = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "云径 CinPath | Spatial Cinematography",
+  title: "云径 CinePath | Spatial Cinematography",
   description:
     "把已写好的故事放进真实空间，用参考画面定义视觉语言，生成可执行摄影路径。",
 };

@@ -90,7 +90,8 @@ export function IntroSplash({ onDone }: { onDone: () => void }) {
       ) : null}
       {kind === "fallback" ? (
         <div className="intro-fallback">
-          <span>YUNJING</span>
+          <span>CinePath</span>
+          <small>SPATIAL CINEMATOGRAPHY</small>
         </div>
       ) : null}
     </div>

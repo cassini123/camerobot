@@ -19,13 +19,13 @@ export type LibraryAsset = {
 
 export const CINPATH_SCENE_PARAM = "scene";
 
-/** Library scene/object (or its pano card) opens this CinPath URL. */
+/** Library scene/object (or its pano card) opens this CinePath URL. */
 export function cinpathHrefForAsset(asset: Pick<LibraryAsset, "id" | "kind">): string | null {
   if (asset.kind === "scene" || asset.kind === "object") {
-    return `/yunjing/cinpath?${CINPATH_SCENE_PARAM}=${encodeURIComponent(asset.id)}`;
+    return `/yunjing/cinepath?${CINPATH_SCENE_PARAM}=${encodeURIComponent(asset.id)}`;
   }
   if (asset.id.endsWith("-pano")) {
-    return `/yunjing/cinpath?${CINPATH_SCENE_PARAM}=${encodeURIComponent(asset.id.slice(0, -5))}`;
+    return `/yunjing/cinepath?${CINPATH_SCENE_PARAM}=${encodeURIComponent(asset.id.slice(0, -5))}`;
   }
   return null;
 }

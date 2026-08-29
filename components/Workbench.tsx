@@ -935,7 +935,7 @@ export function Workbench({ skipIntro = false }: { skipIntro?: boolean }) {
           <Link href="/yunjing">
             <b>YUNJING</b>
           </Link>
-          <span>CinPath</span>
+          <span>CinePath</span>
         </div>
         <div className="hdr-actions">
           <button className="btn" onClick={() => setDual((v) => !v)}>

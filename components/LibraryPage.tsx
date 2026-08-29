@@ -121,7 +121,7 @@ export function LibraryPage() {
               <p className="lib-empty">
                 {mineSource === "upload"
                   ? "还没有上传素材。图片 / 视频 / 物体 / 场景会分开放在这里。"
-                  : "还没有生成结果。CinPath 或 WORLD 生成的模型会进这一栏。"}
+                  : "还没有生成结果。CinePath 或 WORLD 生成的模型会进这一栏。"}
               </p>
             ) : (
               mine.map((item) => {
@@ -157,7 +157,7 @@ export function LibraryPage() {
                     <div className="lib-actions" onClick={(event) => event.stopPropagation()}>
                       {cinpath ? (
                         <Link className="btn primary" href={cinpath}>
-                          在 CinPath 使用
+                          在 CinePath 使用
                         </Link>
                       ) : null}
                       {item.remoteUrl ? (

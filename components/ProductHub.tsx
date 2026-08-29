@@ -28,7 +28,11 @@ export function ProductHub() {
 
   useEffect(() => {
     try {
-      if (sessionStorage.getItem(INTRO_KEY) !== "1") {
+      const replay = new URLSearchParams(window.location.search).get("intro") === "1";
+      if (replay) {
+        sessionStorage.removeItem(INTRO_KEY);
+        setIntroDone(false);
+      } else if (sessionStorage.getItem(INTRO_KEY) !== "1") {
         setIntroDone(false);
       }
     } catch {
@@ -68,12 +72,12 @@ export function ProductHub() {
 
       <Link
         className={`hub-card hub-start${hubPick === "start" ? " gemini-glow" : ""}`}
-        href="/yunjing/cinpath"
+        href="/yunjing/cinepath"
         onClick={() => setHubPick("start")}
       >
         <span className="hub-plus">+</span>
         <b>Start Creating</b>
-        <em>进入 CinPath</em>
+        <em>进入 CinePath</em>
       </Link>
 
       <button

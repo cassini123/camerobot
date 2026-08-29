@@ -1019,6 +1019,7 @@ input[type="range"]::-moz-range-thumb {
 .intro-fallback {
   display: grid;
   place-items: center;
+  gap: 14px;
   animation: introMark 3s ease forwards;
 }
 
@@ -1027,6 +1028,12 @@ input[type="range"]::-moz-range-thumb {
   font-size: clamp(28px, 6vw, 64px);
   letter-spacing: 0.32em;
   font-weight: 700;
+}
+
+.intro-fallback small {
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  color: var(--muted);
 }
 
 @keyframes introMark {

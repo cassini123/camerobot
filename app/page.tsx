@@ -14,7 +14,7 @@ export default function HomePage() {
         <Link className="card" href="/yunjing">
           <b>打开云径 Product</b>
           <p style={{ color: "var(--muted)", marginTop: 8 }}>
-            卡片首页 · Start Creating 进入 CinPath · Library / Predesign / World
+            卡片首页 · Start Creating 进入 CinePath · Library / Predesign / World
           </p>
         </Link>
         <a className="card" href="/camerobot/index.html">

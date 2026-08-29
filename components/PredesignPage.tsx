@@ -28,7 +28,7 @@ export function PredesignPage() {
         <section className="hub-card static">
           <small>VISUAL</small>
           <h2>Visual DNA</h2>
-          <p>35mm · 低机位 · 暖金厅堂光 · 中轴对称。参考图在 CinPath 里分析后写入 shot pattern。</p>
+          <p>35mm · 低机位 · 暖金厅堂光 · 中轴对称。参考图在 CinePath 里分析后写入 shot pattern。</p>
         </section>
         <section className="hub-card static">
           <small>FRONT</small>

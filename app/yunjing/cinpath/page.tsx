@@ -1,7 +1,5 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { Workbench } from "@/components/Workbench";
-
-export default function CinPathRoute() {
-  return <Workbench skipIntro />;
+export default function CinPathAliasRedirect() {
+  redirect("/yunjing/cinepath");
 }

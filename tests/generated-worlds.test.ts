@@ -50,12 +50,12 @@ describe("generated worlds catalog", () => {
     expect(merged.some((item) => item.id === "user-1")).toBe(true);
   });
 
-  it("opens library scenes in CinPath by id, including pano cards", () => {
+  it("opens library scenes in CinePath by id, including pano cards", () => {
     expect(cinpathHrefForAsset({ id: "world-fjord", kind: "scene" })).toBe(
-      "/yunjing/cinpath?scene=world-fjord",
+      "/yunjing/cinepath?scene=world-fjord",
     );
     expect(cinpathHrefForAsset({ id: "world-fjord-pano", kind: "image" })).toBe(
-      "/yunjing/cinpath?scene=world-fjord",
+      "/yunjing/cinepath?scene=world-fjord",
     );
     expect(cinpathHrefForAsset({ id: "ref-1", kind: "image" })).toBeNull();
   });
