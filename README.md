@@ -45,8 +45,31 @@ Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_A
 本地参考图/视频 -> 素材登记 -> 参考分析 -> 镜头规划 -> 眼睛显示屏事件
 ```
 
+可选输入 Everec/Knowgo 风格的 `storyboard_shots`，由 planner 透传到 `ShotPlan`
+（并据此给出 Plus 横向滑轨 `extend` 提示）。机载实时视觉与一键成片边界见文档。
+
 当前程序还不是完整 CV 模型，也没有连接真实机器人硬件。它先把数据结构、接口和
 执行流程跑通，后续可以逐步替换成真实图像识别、深度估计、灯光估计和硬件控制。
+
+### 0.0a 设计文档：Base / Plus SKU、边缘视觉、续航
+
+| 文档 | 内容 |
+|------|------|
+| [docs/sku-hardware.md](docs/sku-hardware.md) | Base / Plus 硬件结构、BOM 级模块、接口、无人机舱分期 |
+| [docs/edge-vision-and-everec.md](docs/edge-vision-and-everec.md) | 边缘模型档位、与 [everec](https://github.com/cassini123/everec) 的 JSON 契约、成片链路 |
+| [docs/power-budget-24h.md](docs/power-budget-24h.md) | 功耗账、**多电池 + 太阳能**容量建议、升降耗电、24h 口径 |
+| [docs/solar-array-and-tracking.md](docs/solar-array-and-tracking.md) | **100 W / ~0.5 m²** 阵列 + 太阳高度角仰角跟踪 |
+| [docs/test-stack-a7m4-mini4pro.md](docs/test-stack-a7m4-mini4pro.md) | 开发测试栈：Sony A7M4 + DJI Mini 4 Pro |
+| [docs/vision-backend-swap.md](docs/vision-backend-swap.md) | 视觉模块：启发式 vs YOLO、色轮、相机参数、换模步骤 |
+| [docs/assets/camerobot-plus-structure-lineart.png](docs/assets/camerobot-plus-structure-lineart.png) | Plus **黑白线稿结构图**（标注部件） |
+| [docs/assets/camerobot-plus-structure-perspective.png](docs/assets/camerobot-plus-structure-perspective.png) | Plus 工业设计透视图（概念渲染） |
+
+**Everec 集成边界：** Knowgo 分镜 + Simcut 成片在创作者端；Camerobot 负责执行与
+机载 CV。不要把 everec 整仓嵌入 MCU。真检测（YOLO 类）是独立边缘栈，不是
+everec 内置模型。
+
+**续航口径：** 不承诺 24h 连续录制 + 满血 NPU + 持续移动；承诺「全天间歇跟拍」
+并写明累计有效拍摄小时。详见功耗文档。
 
 ### 0.0 Vercel 静态首页
 
@@ -80,10 +103,54 @@ tests/
 
 ### 0.2 命令行运行
 
-分析参考图：
+分析参考图（底层启发式）：
 
 ```bash
 python3 -m camerobot.cli analyze --asset /path/to/reference.png
+```
+
+**照片模式**（机位视角 / 人物位置 / 光照 / 效果 / 色彩）：
+
+```bash
+python3 -m camerobot.cli photo --asset /path/to/reference.png
+```
+
+**视频分镜模式**（分镜 JSON：参考图、运镜、时长等）：
+
+```bash
+python3 -m camerobot.cli video \
+  --storyboard /path/to/storyboard.json \
+  --fallback-asset /path/to/default.png \
+  --use-drone
+```
+
+`storyboard.json` 示例：
+
+```json
+{
+  "intent": "vlog_follow",
+  "constraints": { "indoor": false, "use_drone": true },
+  "storyboard_shots": [
+    {
+      "index": 0,
+      "duration_s": 4,
+      "shot_type": "wide",
+      "camera_movement": "drone_reveal",
+      "reference_asset_path": "/path/to/aerial_still.png",
+      "drone_role": "establishing",
+      "implementation": "Mini 4 Pro 建立镜头"
+    },
+    {
+      "index": 1,
+      "duration_s": 5,
+      "shot_type": "medium",
+      "camera_movement": "push_in",
+      "reference_asset_path": "/path/to/ground_still.png",
+      "look_hint": "natural_portrait",
+      "implementation": "A7M4 推进"
+    }
+  ]
+}
 ```
 
 生成完整 shot plan：
@@ -111,6 +178,40 @@ python3 -m camerobot.cli simulate \
 python3 -m camerobot.server --host 127.0.0.1 --port 8080
 ```
 
+照片模式：
+
+```bash
+curl -X POST http://127.0.0.1:8080/photo-mode \
+  -H 'Content-Type: application/json' \
+  -d '{"asset_path": "/path/to/reference.png", "intent": "replicate_composition"}'
+```
+
+视频分镜模式：
+
+```bash
+curl -X POST http://127.0.0.1:8080/video-mode \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fallback_asset_path": "/path/to/default.png",
+    "intent": "vlog_follow",
+    "constraints": {"indoor": false, "use_drone": true},
+    "storyboard_shots": [
+      {
+        "index": 0,
+        "duration_s": 4,
+        "camera_movement": "drone_reveal",
+        "reference_asset_path": "/path/to/aerial.png"
+      },
+      {
+        "index": 1,
+        "duration_s": 5,
+        "camera_movement": "push_in",
+        "reference_asset_path": "/path/to/ground.png"
+      }
+    ]
+  }'
+```
+
 请求生成 shot plan：
 
 ```bash
@@ -126,7 +227,17 @@ curl -X POST http://127.0.0.1:8080/shot-requests \
       "use_drone": false,
       "allow_arm_motion": true,
       "allow_lighting_adjustment": true
-    }
+    },
+    "storyboard_shots": [
+      {
+        "index": 0,
+        "start_s": 0.0,
+        "end_s": 3.0,
+        "shot_type": "medium",
+        "camera_movement": "push_in",
+        "implementation": "缓慢推进主体"
+      }
+    ]
   }'
 ```
 
