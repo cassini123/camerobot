@@ -18,6 +18,8 @@ npm run dev
 
 打开 http://localhost:3000/yunjing
 
+视觉匹配工作台：http://localhost:3000/flyvision
+
 Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_API_KEY`（可选）。密钥不要提交进仓库。
 
 ### Demo 十步

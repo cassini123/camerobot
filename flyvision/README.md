@@ -54,6 +54,12 @@ python3 -m flyvision image --help
 Still-image scoring works with stdlib only (BMP/PPM). Live MJPEG and HOG
 need OpenCV.
 
+Open the matcher in the browser (no ESP32 required for the demo):
+
+```text
+http://localhost:3000/flyvision
+```
+
 ```bash
 # one still, injected person box (no OpenCV)
 PYTHONPATH=flyvision/python python3 -m flyvision image \

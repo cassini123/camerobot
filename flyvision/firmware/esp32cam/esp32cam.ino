@@ -112,7 +112,12 @@ static void start_wifi() {
 #endif
 }
 
+static void add_cors(httpd_req_t *req) {
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+}
+
 static esp_err_t index_handler(httpd_req_t *req) {
+  add_cors(req);
   httpd_resp_set_type(req, "text/html");
   return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
 }
@@ -156,6 +161,7 @@ static esp_err_t status_handler(httpd_req_t *req) {
       ip[2],
       ip[3]);
   httpd_resp_set_type(req, "application/json");
+  add_cors(req);
   return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -167,12 +173,14 @@ static esp_err_t capture_handler(httpd_req_t *req) {
   }
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+  add_cors(req);
   esp_err_t err = httpd_resp_send(req, (const char *)fb->buf, fb->len);
   esp_camera_fb_return(fb);
   return err;
 }
 
 static esp_err_t stream_handler(httpd_req_t *req) {
+  add_cors(req);
   esp_err_t err = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
   if (err != ESP_OK) {
     return err;

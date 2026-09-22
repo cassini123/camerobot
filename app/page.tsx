@@ -17,6 +17,12 @@ export default function HomePage() {
             卡片首页 · Start Creating 进入 CinePath · Library / Predesign / World
           </p>
         </Link>
+        <Link className="card" href="/flyvision">
+          <b>打开 flyvision</b>
+          <p style={{ color: "var(--muted)", marginTop: 8 }}>
+            Shot Matching 工作台：参考图 / 上传 / 摄像头 / ESP32-CAM，判断像不像预设镜头。
+          </p>
+        </Link>
         <a className="card" href="/camerobot/index.html">
           <b>Camerobot</b>
           <p style={{ color: "var(--muted)", marginTop: 8 }}>
