@@ -13,9 +13,11 @@ import {
 } from "@/lib/flyvision-match";
 import {
   compareSpatial,
+  cropLabel,
   estimateSpatial,
-  formatMeters,
+  formatDistance,
   headingLabel,
+  SpatialSmoother,
   type SpatialDelta,
   type SpatialFix,
 } from "@/lib/spatial";
@@ -92,7 +94,8 @@ export function FlyvisionWorkbench() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stableRef = useRef(0);
   const leftPixelsRef = useRef<RgbPixels | null>(null);
-  const leftAspectRef = useRef(4 / 3);
+  const leftAspectRef = useRef(16 / 9);
+  const liveSmoothRef = useRef(new SpatialSmoother(5));
 
   useEffect(() => {
     let cancelled = false;
@@ -149,7 +152,10 @@ export function FlyvisionWorkbench() {
     let stopped = false;
     void (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+          audio: false,
+        });
         if (!video) {
           return;
         }
@@ -167,8 +173,15 @@ export function FlyvisionWorkbench() {
               await detectYolo(video, video.videoWidth, video.videoHeight),
               aspect,
             );
+            const primary = primarySubject(dets);
+            const smoothed = liveSmoothRef.current.push(
+              primary && "spatial" in primary ? (primary as RichDet).spatial : null,
+            );
+            const next = dets.map((det) =>
+              primary && det === primary ? { ...det, spatial: smoothed } : det,
+            );
             if (!stopped) {
-              setRightDets(dets);
+              setRightDets(next);
             }
           } catch (err) {
             if (!stopped) {
@@ -185,6 +198,7 @@ export function FlyvisionWorkbench() {
     return () => {
       stopped = true;
       window.clearTimeout(timer);
+      liveSmoothRef.current.reset();
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, [modelState]);
@@ -366,7 +380,8 @@ function spatialLine(det: RichDet | null): string | null {
   if (!det.spatial) {
     return name;
   }
-  return `${name}  ${formatMeters(det.spatial.distanceM)}  ${headingLabel(det.spatial.heading)}`;
+  const crop = cropLabel(det.spatial.crop);
+  return `${name}  ${formatDistance(det.spatial)}${crop ? `  ${crop}` : ""}  ${headingLabel(det.spatial.heading)}`;
 }
 
 function Boxes({
@@ -391,7 +406,7 @@ function Boxes({
         >
           <b>
             {zh(det.label)}
-            {det.spatial ? `  ${formatMeters(det.spatial.distanceM)}` : ""}
+            {det.spatial ? `  ${formatDistance(det.spatial)}` : ""}
           </b>
         </span>
       ))}
@@ -423,7 +438,7 @@ function Pills({
             {zh(det.label)}
             <em>
               {det.spatial
-                ? `${formatMeters(det.spatial.distanceM)} · ${headingLabel(det.spatial.heading)}`
+                ? `${formatDistance(det.spatial)}${cropLabel(det.spatial.crop) ? ` · ${cropLabel(det.spatial.crop)}` : ""}`
                 : `${(det.score * 100).toFixed(0)}%`}
             </em>
           </span>

@@ -28,7 +28,7 @@ export default function FlyvisionPlanPage() {
         </ul>
         <h2 style={{ fontSize: 20, margin: "28px 0 8px" }}>距离怎么来的</h2>
         <p>
-          人按 1.7 m 高，用框高和镜头视场反推距离；框中心相对画面中心得到左右、高低。这是粗估，不是
+          先判断框是全身、半身还是近景，再用对应身高和肩宽反推距离；左右用针孔线性映射，实拍做中值平滑。这是粗估，不是
           RTK。完整公式和阶段表在仓库{" "}
           <code>flyvision/PLAN.md</code>。
         </p>
