@@ -50,9 +50,7 @@ export function ProductHub() {
   return (
     <div className="product-hub">
       <header className="product-top">
-        <Link className="product-mark" href="/flyvision">
-          flyvision
-        </Link>
+        <span />
         <a className="product-mark" href="https://everec.coze.site">
           everec
         </a>
@@ -62,6 +60,9 @@ export function ProductHub() {
         className={hubPick === "globe" ? "gemini-glow" : ""}
         onPick={() => setHubPick("globe")}
       />
+      <Link className="hub-flyvision" href="/flyvision">
+        flyvision
+      </Link>
 
       <a
         className={`hub-card hub-predesign${hubPick === "everec" ? " gemini-glow" : ""}`}
