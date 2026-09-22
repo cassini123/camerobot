@@ -1,4 +1,10 @@
-import { compareSpatial, estimateSpatial, formatMeters } from "@/lib/spatial";
+import {
+  compareSpatial,
+  estimateSpatial,
+  formatMeters,
+  inferVisibleSize,
+  SpatialSmoother,
+} from "@/lib/spatial";
 import { describe, expect, it } from "vitest";
 
 describe("spatial pinhole", () => {
@@ -34,5 +40,87 @@ describe("spatial pinhole", () => {
   it("formats meters compactly", () => {
     expect(formatMeters(1.24)).toBe("1.2 m");
     expect(formatMeters(12.6)).toBe("13 m");
+  });
+
+  it("treats a webcam bust as about a meter, not five", () => {
+    const bust = estimateSpatial(
+      "person",
+      { x: 0.3, y: 0.18, w: 0.4, h: 0.58 },
+      16 / 9,
+      70,
+    );
+    expect(bust).not.toBeNull();
+    expect(bust!.crop).toBe("bust");
+    expect(bust!.distanceM).toBeGreaterThan(0.45);
+    expect(bust!.distanceM).toBeLessThan(1.6);
+    expect(bust!.range).toBe("near");
+  });
+
+  it("treats a tight head crop as arm's-length, not a hallway", () => {
+    const head = estimateSpatial(
+      "person",
+      { x: 0.36, y: 0.22, w: 0.28, h: 0.36 },
+      16 / 9,
+      70,
+    );
+    expect(head!.crop).toBe("head");
+    expect(head!.distanceM).toBeGreaterThan(0.3);
+    expect(head!.distanceM).toBeLessThan(1.2);
+  });
+
+  it("keeps a distant full-body figure several meters out", () => {
+    const full = estimateSpatial(
+      "person",
+      { x: 0.44, y: 0.28, w: 0.07, h: 0.26 },
+      16 / 9,
+      70,
+    );
+    expect(full!.crop).toBe("full");
+    expect(full!.distanceM).toBeGreaterThan(3);
+    expect(full!.distanceM).toBeLessThan(10);
+  });
+
+  it("does not use standing height when the box fills the frame", () => {
+    const clipped = inferVisibleSize("person", { x: 0.18, y: 0.0, w: 0.64, h: 1.0 });
+    expect(clipped?.heightUsable).toBe(false);
+    expect(clipped?.crop).toMatch(/bust|waist|knee/);
+    const fix = estimateSpatial("person", { x: 0.18, y: 0.0, w: 0.64, h: 1.0 }, 16 / 9, 70);
+    expect(fix!.distanceM).toBeLessThan(2.2);
+  });
+
+  it("maps image x to tan(angle), not tan(tan(angle))", () => {
+    const fix = estimateSpatial("person", { x: 0.02, y: 0.25, w: 0.1, h: 0.4 }, 16 / 9, 70)!;
+    const cx = 0.02 + 0.1 / 2;
+    const hfov = (70 * Math.PI) / 180;
+    const expected = fix.distanceM * (cx - 0.5) * 2 * Math.tan(hfov / 2);
+    expect(fix.rightM).toBeCloseTo(expected, 5);
+    expect(Math.abs(fix.rightM)).toBeLessThan(
+      Math.abs(fix.distanceM * Math.tan((cx - 0.5) * 2 * Math.tan(hfov / 2))),
+    );
+  });
+
+  it("scales distance when the user sets a taller person height", () => {
+    const box = { x: 0.44, y: 0.28, w: 0.07, h: 0.26 };
+    const avg = estimateSpatial("person", box, { aspect: 16 / 9, personHeightM: 1.7 })!;
+    const tall = estimateSpatial("person", box, { aspect: 16 / 9, personHeightM: 1.9 })!;
+    expect(tall.distanceM).toBeGreaterThan(avg.distanceM);
+  });
+
+  it("drops a frame-filling truncated box when rejectPartial is on", () => {
+    const box = { x: 0.18, y: 0.0, w: 0.64, h: 1.0 };
+    expect(estimateSpatial("person", box, { aspect: 16 / 9, rejectPartial: true })).toBeNull();
+    expect(estimateSpatial("person", box, { aspect: 16 / 9, rejectPartial: false })).not.toBeNull();
+  });
+
+  it("smooths jittery live distances with a median window", () => {
+    const smooth = new SpatialSmoother(5);
+    const a = estimateSpatial("person", { x: 0.32, y: 0.2, w: 0.36, h: 0.55 }, 16 / 9, 70)!;
+    const b = estimateSpatial("person", { x: 0.3, y: 0.18, w: 0.4, h: 0.58 }, 16 / 9, 70)!;
+    const spike = estimateSpatial("person", { x: 0.28, y: 0.1, w: 0.2, h: 0.3 }, 16 / 9, 70)!;
+    smooth.push(a);
+    smooth.push(b);
+    const out = smooth.push(spike);
+    const raw = [a.distanceM, b.distanceM, spike.distanceM].sort((x, y) => x - y);
+    expect(out!.distanceM).toBeCloseTo(raw[1], 5);
   });
 });

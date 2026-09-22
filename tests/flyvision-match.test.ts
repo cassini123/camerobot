@@ -52,4 +52,18 @@ describe("flyvision browser matcher", () => {
     expect(score.sceneMatch).toBe(true);
     expect(score.similarity).toBeGreaterThan(0.99);
   });
+
+  it("keeps box-center composition independent of embedding similarity", () => {
+    const onTarget = judgeComposition({ x: 0.3, y: 0.27, w: 0.16, h: 0.46 }, [0.38, 0.5]);
+    const offTarget = judgeComposition({ x: 0.72, y: 0.0, w: 0.16, h: 0.46 }, [0.38, 0.5]);
+    expect(onTarget.compositionOk).toBe(true);
+    expect(offTarget.compositionOk).toBe(false);
+    const hist = hsvHistogram(solidRgb(16, 16, [10, 10, 10]));
+    const left = { histogram: hist, subjectCenter: [0.2, 0.2] as [number, number], subjectArea: 0.1 };
+    const right = { histogram: hist, subjectCenter: [0.8, 0.8] as [number, number], subjectArea: 0.1 };
+    const score = scoreMatch(left, right, 0.5, { clipCosine: 0.99 });
+    expect(score.clipSimilarity).toBeCloseTo(0.99);
+    expect(score.compositionSimilarity).toBeLessThan(0.5);
+    expect(offTarget.compositionOk).toBe(false);
+  });
 });

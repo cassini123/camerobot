@@ -23,12 +23,14 @@ export default function FlyvisionPlanPage() {
         <h2 style={{ fontSize: 20, margin: "28px 0 8px" }}>已接</h2>
         <ul>
           <li>YOLOv8n：上传图 + 摄像头主体识别</li>
-          <li>Shot match：直方图 + 构图</li>
-          <li>空间：大致距离、偏左/偏右/高低（米）</li>
+          <li>Shot match：MobileCLIP2-S0 为主，HSV 只看色调；框中心仍管偏左偏右</li>
+          <li>空间：可见部位 + 可标定视场/身高；截断框可丢掉</li>
+          <li>景别：参考图离线打 FilmOps 式标签</li>
+          <li>PC：`flyvision depth` 融合 DA-V2 Metric 框内中值</li>
         </ul>
         <h2 style={{ fontSize: 20, margin: "28px 0 8px" }}>距离怎么来的</h2>
         <p>
-          人按 1.7 m 高，用框高和镜头视场反推距离；框中心相对画面中心得到左右、高低。这是粗估，不是
+          先判断框是全身、半身还是近景，再用对应身高和肩宽反推距离；左右用针孔线性映射，实拍做中值平滑。这是粗估，不是
           RTK。完整公式和阶段表在仓库{" "}
           <code>flyvision/PLAN.md</code>。
         </p>
