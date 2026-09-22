@@ -466,22 +466,26 @@ export function FlyvisionWorkbench() {
         </dl>
         <div className="apple-cal">
           <label>
-            视场 {hfovDeg}°
+            <span>视场 {hfovDeg}°</span>
             <input
               type="range"
               min={50}
               max={90}
+              step={1}
               value={hfovDeg}
+              aria-label="水平视场"
               onChange={(event) => setHfovDeg(Number(event.target.value))}
             />
           </label>
           <label>
-            身高 {personHeightM.toFixed(2)} m
+            <span>身高 {personHeightM.toFixed(2)} m</span>
             <input
               type="range"
               min={150}
               max={190}
+              step={1}
               value={Math.round(personHeightM * 100)}
+              aria-label="主体身高"
               onChange={(event) => setPersonHeightM(Number(event.target.value) / 100)}
             />
           </label>
