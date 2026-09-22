@@ -39,7 +39,7 @@ Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_A
 
 ## flyvision（无人机视觉第一期）
 
-浏览器工作台：左边上传图，**YOLOv8n** 做主体识别；右边接真实摄像头，同一套 YOLO 实时框主体，再和左边比构图。没有预制假框。打开 http://localhost:3000/flyvision 或 https://camerobot.vercel.app/flyvision
+浏览器工作台：左边上传图，**YOLOv8n** 识别主体并估计大致距离 / 相对位置；右边摄像头同一套模型对照。计划见 [`flyvision/PLAN.md`](flyvision/PLAN.md) 与 `/flyvision/plan`。打开 https://camerobot.vercel.app/flyvision
 
 不改电机、ESC、飞控。见 [`flyvision/README.md`](flyvision/README.md)。
 
