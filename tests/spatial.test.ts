@@ -99,6 +99,19 @@ describe("spatial pinhole", () => {
     );
   });
 
+  it("scales distance when the user sets a taller person height", () => {
+    const box = { x: 0.44, y: 0.28, w: 0.07, h: 0.26 };
+    const avg = estimateSpatial("person", box, { aspect: 16 / 9, personHeightM: 1.7 })!;
+    const tall = estimateSpatial("person", box, { aspect: 16 / 9, personHeightM: 1.9 })!;
+    expect(tall.distanceM).toBeGreaterThan(avg.distanceM);
+  });
+
+  it("drops a frame-filling truncated box when rejectPartial is on", () => {
+    const box = { x: 0.18, y: 0.0, w: 0.64, h: 1.0 };
+    expect(estimateSpatial("person", box, { aspect: 16 / 9, rejectPartial: true })).toBeNull();
+    expect(estimateSpatial("person", box, { aspect: 16 / 9, rejectPartial: false })).not.toBeNull();
+  });
+
   it("smooths jittery live distances with a median window", () => {
     const smooth = new SpatialSmoother(5);
     const a = estimateSpatial("person", { x: 0.32, y: 0.2, w: 0.36, h: 0.55 }, 16 / 9, 70)!;

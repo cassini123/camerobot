@@ -95,14 +95,30 @@ export type VisibleSize = {
   widthUsable: boolean;
 };
 
+export type SpatialOptions = {
+  aspect?: number;
+  hfovDeg?: number;
+  personHeightM?: number;
+  rejectPartial?: boolean;
+};
+
 export function estimateSpatial(
   label: string,
   box: BBox,
-  aspect = 16 / 9,
-  hfovDeg = DEFAULT_HFOV_DEG,
+  aspectOrOptions: number | SpatialOptions = 16 / 9,
+  hfovDegArg = DEFAULT_HFOV_DEG,
 ): SpatialFix | null {
-  const visible = inferVisibleSize(label, box);
+  const options: SpatialOptions =
+    typeof aspectOrOptions === "number"
+      ? { aspect: aspectOrOptions, hfovDeg: hfovDegArg }
+      : aspectOrOptions;
+  const aspect = options.aspect ?? 16 / 9;
+  const hfovDeg = options.hfovDeg ?? DEFAULT_HFOV_DEG;
+  const visible = inferVisibleSize(label, box, options.personHeightM);
   if (!visible || box.h < 0.02 || box.w < 0.01) {
+    return null;
+  }
+  if (options.rejectPartial && !visible.heightUsable) {
     return null;
   }
   const hfov = deg(hfovDeg);
@@ -133,9 +149,13 @@ export function estimateSpatial(
   };
 }
 
-export function inferVisibleSize(label: string, box: BBox): VisibleSize | null {
+export function inferVisibleSize(
+  label: string,
+  box: BBox,
+  personHeightM = REAL_HEIGHT_M.person,
+): VisibleSize | null {
   if (label === "person") {
-    return inferPersonSize(box);
+    return inferPersonSize(box, personHeightM);
   }
   const heightM = REAL_HEIGHT_M[label];
   const widthM = REAL_WIDTH_M[label];
@@ -244,9 +264,10 @@ export class SpatialSmoother {
   }
 }
 
-function inferPersonSize(box: BBox): VisibleSize {
+function inferPersonSize(box: BBox, personHeightM = REAL_HEIGHT_M.person): VisibleSize {
   const aspect = box.w / Math.max(box.h, 1e-6);
   const clip = clipFlags(box);
+  const scale = (personHeightM || 1.7) / 1.7;
   let crop: Exclude<BodyCrop, "object">;
   if (clip.top && clip.bottom) {
     crop = aspect >= 0.72 ? "bust" : aspect >= 0.5 ? "waist" : "knee";
@@ -268,8 +289,8 @@ function inferPersonSize(box: BBox): VisibleSize {
   const size = PERSON_VISIBLE[crop];
   return {
     crop,
-    heightM: size.heightM,
-    widthM: size.widthM,
+    heightM: size.heightM * scale,
+    widthM: size.widthM * scale,
     heightUsable: !(clip.top && clip.bottom),
     widthUsable: true,
   };

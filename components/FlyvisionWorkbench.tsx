@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { embedClip, getClipSession } from "@/lib/clip-embed";
 import {
   CAPTURE_GO,
   extractFeatures,
@@ -12,6 +13,12 @@ import {
   type RgbPixels,
 } from "@/lib/flyvision-match";
 import {
+  formatShotLabels,
+  labelShot,
+  labelSimilarity,
+  type ShotLabelSet,
+} from "@/lib/shot-labels";
+import {
   compareSpatial,
   cropLabel,
   estimateSpatial,
@@ -20,6 +27,7 @@ import {
   SpatialSmoother,
   type SpatialDelta,
   type SpatialFix,
+  type SpatialOptions,
 } from "@/lib/spatial";
 import { detectYolo, getYoloSession, primarySubject, type YoloDet } from "@/lib/yolo";
 
@@ -68,18 +76,24 @@ function imagePixels(image: HTMLImageElement): RgbPixels {
   );
 }
 
-function enrich(dets: YoloDet[], aspect: number): RichDet[] {
+function enrich(dets: YoloDet[], options: SpatialOptions): RichDet[] {
   return dets.map((det) => ({
     ...det,
-    spatial: estimateSpatial(det.label, det.box, aspect),
+    spatial: estimateSpatial(det.label, det.box, options),
   }));
 }
 
 export function FlyvisionWorkbench() {
   const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
+  const [clipState, setClipState] = useState<"loading" | "ready" | "error">("loading");
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
   const [leftDets, setLeftDets] = useState<RichDet[]>([]);
   const [rightDets, setRightDets] = useState<RichDet[]>([]);
+  const [leftLabels, setLeftLabels] = useState<ShotLabelSet | null>(null);
+  const [rightLabels, setRightLabels] = useState<ShotLabelSet | null>(null);
+  const [hfovDeg, setHfovDeg] = useState(70);
+  const [personHeightM, setPersonHeightM] = useState(1.7);
+  const [rejectPartial, setRejectPartial] = useState(true);
   const [camError, setCamError] = useState<string | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<{
@@ -89,13 +103,23 @@ export function FlyvisionWorkbench() {
     spatial: SpatialDelta | null;
     leftLabel: string;
     rightLabel: string;
+    clip: number | null;
   } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stableRef = useRef(0);
   const leftPixelsRef = useRef<RgbPixels | null>(null);
   const leftAspectRef = useRef(16 / 9);
+  const leftEmbedRef = useRef<number[] | null>(null);
   const liveSmoothRef = useRef(new SpatialSmoother(5));
+  const spatialOpts = useMemo(
+    () => ({ hfovDeg, personHeightM, rejectPartial }),
+    [hfovDeg, personHeightM, rejectPartial],
+  );
+  const spatialOptsRef = useRef(spatialOpts);
+  spatialOptsRef.current = spatialOpts;
+  const clipStateRef = useRef(clipState);
+  clipStateRef.current = clipState;
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +135,17 @@ export function FlyvisionWorkbench() {
           setDetectError(err.message || "YOLOv8 未加载");
         }
       });
+    void getClipSession()
+      .then(() => {
+        if (!cancelled) {
+          setClipState("ready");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClipState("error");
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -118,13 +153,23 @@ export function FlyvisionWorkbench() {
 
   const runLeftDetect = useCallback(async (url: string) => {
     const image = await loadHtmlImage(url);
-    leftPixelsRef.current = imagePixels(image);
+    const pixels = imagePixels(image);
+    leftPixelsRef.current = pixels;
     leftAspectRef.current = image.naturalWidth / image.naturalHeight;
-    const dets = enrich(
-      await detectYolo(image, image.naturalWidth, image.naturalHeight),
-      leftAspectRef.current,
-    );
+    const dets = enrich(await detectYolo(image, image.naturalWidth, image.naturalHeight), {
+      aspect: leftAspectRef.current,
+      ...spatialOptsRef.current,
+    });
     setLeftDets(dets);
+    const primary = primarySubject(dets);
+    setLeftLabels(
+      primary ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1)) : null,
+    );
+    if (clipStateRef.current === "ready") {
+      leftEmbedRef.current = await embedClip(pixels);
+    } else {
+      leftEmbedRef.current = null;
+    }
     if (!dets.length) {
       setDetectError("参考图里没有识别到主体");
     } else {
@@ -140,7 +185,19 @@ export function FlyvisionWorkbench() {
       setLeftDets([]);
       setDetectError(err.message);
     });
-  }, [modelState, uploadUrl, runLeftDetect]);
+  }, [modelState, uploadUrl, runLeftDetect, clipState]);
+
+  useEffect(() => {
+    setLeftDets((dets) =>
+      dets.map((det) => ({
+        ...det,
+        spatial: estimateSpatial(det.label, det.box, {
+          aspect: leftAspectRef.current,
+          ...spatialOpts,
+        }),
+      })),
+    );
+  }, [spatialOpts]);
 
   useEffect(() => {
     if (modelState !== "ready") {
@@ -169,10 +226,10 @@ export function FlyvisionWorkbench() {
           }
           try {
             const aspect = video.videoWidth / video.videoHeight;
-            const dets = enrich(
-              await detectYolo(video, video.videoWidth, video.videoHeight),
+            const dets = enrich(await detectYolo(video, video.videoWidth, video.videoHeight), {
               aspect,
-            );
+              ...spatialOptsRef.current,
+            });
             const primary = primarySubject(dets);
             const smoothed = liveSmoothRef.current.push(
               primary && "spatial" in primary ? (primary as RichDet).spatial : null,
@@ -182,6 +239,11 @@ export function FlyvisionWorkbench() {
             );
             if (!stopped) {
               setRightDets(next);
+              setRightLabels(
+                primary
+                  ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1))
+                  : null,
+              );
             }
           } catch (err) {
             if (!stopped) {
@@ -226,29 +288,56 @@ export function FlyvisionWorkbench() {
       canvas.width,
       canvas.height,
     );
-    const match = scoreMatch(
-      extractFeatures(live, right.box),
-      extractFeatures(leftPixels, left.box),
-      0.72,
-    );
+    const current = extractFeatures(live, right.box);
+    const reference = extractFeatures(leftPixels, left.box);
+    const labels =
+      leftLabels && rightLabels ? labelSimilarity(rightLabels, leftLabels) : undefined;
     const composition = judgeComposition(
       right.box,
       [left.box.x + left.box.w / 2, left.box.y + left.box.h / 2],
       0.12,
     );
-    const step = nextDecision(match.sceneMatch, composition.compositionOk, stableRef.current, 4);
-    stableRef.current = step.nextCount;
-    const leftFix = "spatial" in left ? (left as RichDet).spatial : null;
-    const rightFix = "spatial" in right ? (right as RichDet).spatial : null;
-    setVerdict({
-      similarity: match.similarity,
-      decision: step.decision,
-      compositionOk: composition.compositionOk,
-      spatial: leftFix && rightFix ? compareSpatial(leftFix, rightFix) : null,
-      leftLabel: zh(left.label),
-      rightLabel: zh(right.label),
-    });
-  }, [leftDets, rightDets]);
+    let cancelled = false;
+    const publish = (clipCosine?: number) => {
+      if (cancelled) {
+        return;
+      }
+      const match = scoreMatch(current, reference, 0.72, {
+        clipCosine,
+        labelSimilarity: labels,
+      });
+      const step = nextDecision(match.sceneMatch, composition.compositionOk, stableRef.current, 4);
+      stableRef.current = step.nextCount;
+      const leftFix = "spatial" in left ? (left as RichDet).spatial : null;
+      const rightFix = "spatial" in right ? (right as RichDet).spatial : null;
+      setVerdict({
+        similarity: match.similarity,
+        decision: step.decision,
+        compositionOk: composition.compositionOk,
+        spatial: leftFix && rightFix ? compareSpatial(leftFix, rightFix) : null,
+        leftLabel: zh(left.label),
+        rightLabel: zh(right.label),
+        clip: match.clipSimilarity,
+      });
+    };
+    if (clipStateRef.current === "ready" && leftEmbedRef.current) {
+      void embedClip(live)
+        .then((liveEmbed) => {
+          const clip = scoreMatch(
+            { ...current, embedding: liveEmbed },
+            { ...reference, embedding: leftEmbedRef.current ?? undefined },
+            0,
+          ).clipSimilarity;
+          publish(clip ?? undefined);
+        })
+        .catch(() => publish());
+    } else {
+      publish();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [leftDets, rightDets, leftLabels, rightLabels]);
 
   function onUpload(file: File | undefined) {
     if (!file) {
@@ -285,7 +374,9 @@ export function FlyvisionWorkbench() {
           {modelState === "loading"
             ? "YOLOv8n 加载中"
             : modelState === "ready"
-              ? "YOLOv8n · 空间估计"
+              ? clipState === "ready"
+                ? "YOLO · CLIP · 空间"
+                : "YOLOv8n · 空间估计"
               : "模型失败"}
         </span>
       </header>
@@ -318,6 +409,7 @@ export function FlyvisionWorkbench() {
             empty="还没有参考图"
             onUpload={() => fileRef.current?.click()}
             canUpload
+            labels={leftLabels}
           />
           <input
             ref={fileRef}
@@ -340,7 +432,7 @@ export function FlyvisionWorkbench() {
             </div>
             {camError ? <p className="apple-cam-err">{camError}</p> : null}
           </div>
-          <Pills dets={rightDets} empty={camError ?? "等待画面"} />
+          <Pills dets={rightDets} empty={camError ?? "等待画面"} labels={rightLabels} />
         </section>
       </div>
 
@@ -359,13 +451,49 @@ export function FlyvisionWorkbench() {
           </div>
           <div>
             <dt>相似度</dt>
-            <dd>{verdict ? verdict.similarity.toFixed(2) : "—"}</dd>
+            <dd>
+              {verdict
+                ? `${verdict.similarity.toFixed(2)}${
+                    verdict.clip !== null ? ` · CLIP ${verdict.clip.toFixed(2)}` : ""
+                  }`
+                : "—"}
+            </dd>
           </div>
           <div>
             <dt>构图</dt>
             <dd>{verdict ? (verdict.compositionOk ? "对齐" : "未对齐") : "—"}</dd>
           </div>
         </dl>
+        <div className="apple-cal">
+          <label>
+            视场 {hfovDeg}°
+            <input
+              type="range"
+              min={50}
+              max={90}
+              value={hfovDeg}
+              onChange={(event) => setHfovDeg(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            身高 {personHeightM.toFixed(2)} m
+            <input
+              type="range"
+              min={150}
+              max={190}
+              value={Math.round(personHeightM * 100)}
+              onChange={(event) => setPersonHeightM(Number(event.target.value) / 100)}
+            />
+          </label>
+          <label className="apple-check">
+            <input
+              type="checkbox"
+              checked={rejectPartial}
+              onChange={(event) => setRejectPartial(event.target.checked)}
+            />
+            截断框不计距离
+          </label>
+        </div>
         {detectError ? <p className="apple-error">{detectError}</p> : null}
       </footer>
     </div>
@@ -419,11 +547,13 @@ function Pills({
   empty,
   onUpload,
   canUpload,
+  labels,
 }: {
   dets: RichDet[];
   empty: string;
   onUpload?: () => void;
   canUpload?: boolean;
+  labels?: ShotLabelSet | null;
 }) {
   return (
     <div className="apple-pills">
@@ -432,6 +562,7 @@ function Pills({
           {dets.length ? "换图" : "上传"}
         </button>
       ) : null}
+      {labels ? <span className="apple-pill">{formatShotLabels(labels)}</span> : null}
       {dets.length ? (
         dets.map((det, index) => (
           <span className="apple-pill" key={`${det.label}-${index}`}>

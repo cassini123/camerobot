@@ -246,6 +246,31 @@
   letter-spacing: -0.02em;
 }
 
+.apple-cal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+  width: 100%;
+  color: #86868b;
+  font-size: 12px;
+}
+
+.apple-cal label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.apple-cal input[type="range"] {
+  width: 96px;
+  accent-color: #0071e3;
+}
+
+.apple-check input {
+  accent-color: #0071e3;
+}
+
 @media (max-width: 860px) {
   .apple-split,
   .apple-meter {

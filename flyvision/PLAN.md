@@ -17,11 +17,16 @@
 
 1. **YOLOv8n**（`public/flyvision/yolov8n.onnx` + onnxruntime-web）  
    左边上传图、右边摄像头，同一套 COCO 检测。
-2. **Shot match**（`lib/flyvision-match.ts`）  
-   主体框裁切后 HSV 直方图 + 构图向量，判断像不像参考图。
+2. **Shot match**（`lib/flyvision-match.ts` + `lib/clip-embed.ts`）  
+   **MobileCLIP2-S0** 余弦为主，HSV 直方图只当色调辅项。框中心构图判决不换成嵌入。
 3. **空间估计**（`lib/spatial.ts`）  
    针孔相机，但按 **可见部位** 取尺度：全身 1.7 m，半身 / 胸上 / 近景用对应身高，并和肩宽/头宽交叉验证。  
+   可标定视场 / 身高；截断框可丢弃；实拍 5 帧中值。  
    框中心相对光轴估 **左右 / 高低（米）**。实拍减参考：近了多少、偏左/偏右多少。
+4. **景别标签**（`lib/shot-labels.ts`）  
+   FilmOps 式景别（ECU→ELS）+ 构图标签，参考图离线打标。
+5. **PC 深度融合**（`flyvision/python/flyvision/depth.py`）  
+   Depth Anything V2 Metric（室外 VKITTI）框内中值，与身高先验融合。权重自备。
 
 这三层都进 UI，没有 DEMO 假框。
 

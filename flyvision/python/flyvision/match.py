@@ -17,6 +17,9 @@ HIST_V_BINS = 4
 HIST_SIZE = HIST_H_BINS * HIST_S_BINS * HIST_V_BINS
 DEFAULT_HIST_WEIGHT = 0.6
 DEFAULT_COMP_WEIGHT = 0.4
+DEFAULT_CLIP_WEIGHT = 0.55
+DEFAULT_COLOR_WEIGHT = 0.15
+DEFAULT_GEOM_WEIGHT = 0.3
 DEFAULT_MATCH_THRESHOLD = 0.85
 
 
@@ -27,6 +30,7 @@ class FrameFeatures:
     histogram: tuple[float, ...]
     subject_center: tuple[float, float]
     subject_area: float
+    embedding: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,7 @@ class MatchResult:
     similarity: float
     histogram_similarity: float
     composition_similarity: float
+    clip_similarity: float | None
     scene_match: bool
     features: FrameFeatures
 
@@ -123,23 +128,42 @@ def composition_similarity(
     return max(0.0, 1.0 - dist / 1.2)
 
 
+def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    if len(left) != len(right) or not left:
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_n = sum(a * a for a in left) ** 0.5
+    right_n = sum(b * b for b in right) ** 0.5
+    if left_n == 0 or right_n == 0:
+        return 0.0
+    return max(0.0, min(1.0, (dot / (left_n * right_n) + 1.0) / 2.0))
+
+
 def feature_similarity(
     current: FrameFeatures,
     reference: FrameFeatures,
     *,
     hist_weight: float = DEFAULT_HIST_WEIGHT,
     comp_weight: float = DEFAULT_COMP_WEIGHT,
-) -> tuple[float, float, float]:
+    clip_weight: float = DEFAULT_CLIP_WEIGHT,
+    color_weight: float = DEFAULT_COLOR_WEIGHT,
+    geom_weight: float = DEFAULT_GEOM_WEIGHT,
+) -> tuple[float, float, float, float | None]:
     hist = histogram_correlation(current.histogram, reference.histogram)
     comp = composition_similarity(
         (*current.subject_center, current.subject_area),
         (*reference.subject_center, reference.subject_area),
     )
+    clip = None
+    if current.embedding and reference.embedding:
+        clip = cosine_similarity(current.embedding, reference.embedding)
+        combined = clip_weight * clip + color_weight * hist + geom_weight * comp
+        return combined, hist, comp, clip
     total = hist_weight + comp_weight
     if total <= 0:
         raise ValueError("weights must sum to a positive value")
     combined = (hist_weight * hist + comp_weight * comp) / total
-    return combined, hist, comp
+    return combined, hist, comp, None
 
 
 def features_for_shot(
@@ -173,12 +197,13 @@ def match_shot(
     extractor = extractor or HistogramFeatureExtractor()
     reference = reference or features_for_shot(shot, extractor)
     current = extractor.extract(image, detections, shot.target_type)
-    combined, hist, comp = feature_similarity(current, reference)
+    combined, hist, comp, clip = feature_similarity(current, reference)
     return MatchResult(
         shot_id=shot.shot_id,
         similarity=combined,
         histogram_similarity=hist,
         composition_similarity=comp,
+        clip_similarity=clip,
         scene_match=combined >= threshold,
         features=current,
     )
