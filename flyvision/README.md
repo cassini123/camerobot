@@ -28,7 +28,7 @@ plans robot motion. flyvision consumes those shots and scores a live frame.
 | Layer | Code | Now |
 | --- | --- | --- |
 | 1 Camera | `camera.py`, `preprocess.py`, `firmware/esp32cam` | MJPEG / webcam / still; crop-resize 256×256 |
-| 2 Scene | `scene.py` | Person (HOG or injected box). Building is a stub label |
+| 2 Scene | browser `lib/yolo.ts` | **YOLOv8n** in-page (onnxruntime-web). No injected boxes. |
 | 3 Shot matching | `shots.py`, `match.py` | HSV histogram + subject vector vs reference still |
 | 4 Composition | `composition.py` | Person center vs `composition.horizontal/vertical` |
 | 5 Capture | `capture.py`, `pipeline.py` | Match + composition + N stable frames → `CAPTURE_GO` |
@@ -54,11 +54,14 @@ python3 -m flyvision image --help
 Still-image scoring works with stdlib only (BMP/PPM). Live MJPEG and HOG
 need OpenCV.
 
-Open the matcher in the browser (no ESP32 required for the demo):
+Open the matcher:
 
 ```text
 http://localhost:3000/flyvision
 ```
+
+Upload a photo on the left. The page loads `public/flyvision/yolov8n.onnx` and
+draws real COCO boxes. The right pane is the live camera, same model.
 
 ```bash
 # one still, injected person box (no OpenCV)

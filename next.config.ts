@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     "@manycore/aholo-sdk-asset",
     "@manycore/aholo-sdk-world",
     "@manycore/aholo-sdk-lux3d",
+    "onnxruntime-web",
   ],
   webpack: (config) => {
     config.experiments = {
@@ -25,6 +26,12 @@ const nextConfig: NextConfig = {
     config.resolve.alias = {
       ...config.resolve.alias,
       exceljs$: "exceljs/dist/exceljs.min.js",
+    };
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      crypto: false,
     };
     return config;
   },
