@@ -54,6 +54,8 @@ python3 -m flyvision image --help
 Still-image scoring works with stdlib only (BMP/PPM). Live MJPEG and HOG
 need OpenCV.
 
+Plan (stages, connected models, distance formula): [`PLAN.md`](PLAN.md)
+
 Open the matcher:
 
 ```text

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CAPTURE_GO,
-  CONTINUE_FOLLOW,
   extractFeatures,
   judgeComposition,
   nextDecision,
@@ -12,9 +11,35 @@ import {
   scoreMatch,
   type RgbPixels,
 } from "@/lib/flyvision-match";
+import {
+  compareSpatial,
+  estimateSpatial,
+  formatMeters,
+  headingLabel,
+  type SpatialDelta,
+  type SpatialFix,
+} from "@/lib/spatial";
 import { detectYolo, getYoloSession, primarySubject, type YoloDet } from "@/lib/yolo";
 
-type PaneDets = YoloDet[];
+const LABEL_ZH: Record<string, string> = {
+  person: "人",
+  bicycle: "自行车",
+  car: "车",
+  motorcycle: "摩托",
+  bus: "公交",
+  truck: "卡车",
+  dog: "狗",
+  cat: "猫",
+  chair: "椅",
+  couch: "沙发",
+  backpack: "包",
+};
+
+type RichDet = YoloDet & { spatial: SpatialFix | null };
+
+function zh(label: string): string {
+  return LABEL_ZH[label] ?? label;
+}
 
 function loadHtmlImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -34,32 +59,40 @@ function imagePixels(image: HTMLImageElement): RgbPixels {
     throw new Error("canvas");
   }
   ctx.drawImage(image, 0, 0);
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return rgbaToRgb(data.data, canvas.width, canvas.height);
+  return rgbaToRgb(
+    ctx.getImageData(0, 0, canvas.width, canvas.height).data,
+    canvas.width,
+    canvas.height,
+  );
+}
+
+function enrich(dets: YoloDet[], aspect: number): RichDet[] {
+  return dets.map((det) => ({
+    ...det,
+    spatial: estimateSpatial(det.label, det.box, aspect),
+  }));
 }
 
 export function FlyvisionWorkbench() {
   const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
-  const [leftDets, setLeftDets] = useState<PaneDets>([]);
-  const [rightDets, setRightDets] = useState<PaneDets>([]);
+  const [leftDets, setLeftDets] = useState<RichDet[]>([]);
+  const [rightDets, setRightDets] = useState<RichDet[]>([]);
   const [camError, setCamError] = useState<string | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<{
     similarity: number;
-    dx: number;
-    dy: number;
-    compositionOk: boolean;
-    sceneMatch: boolean;
     decision: string;
+    compositionOk: boolean;
+    spatial: SpatialDelta | null;
     leftLabel: string;
     rightLabel: string;
   } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const leftImgRef = useRef<HTMLImageElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stableRef = useRef(0);
   const leftPixelsRef = useRef<RgbPixels | null>(null);
+  const leftAspectRef = useRef(4 / 3);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +105,7 @@ export function FlyvisionWorkbench() {
       .catch((err: Error) => {
         if (!cancelled) {
           setModelState("error");
-          setDetectError(err.message || "YOLOv8 模型加载失败");
+          setDetectError(err.message || "YOLOv8 未加载");
         }
       });
     return () => {
@@ -81,18 +114,18 @@ export function FlyvisionWorkbench() {
   }, []);
 
   const runLeftDetect = useCallback(async (url: string) => {
-    try {
+    const image = await loadHtmlImage(url);
+    leftPixelsRef.current = imagePixels(image);
+    leftAspectRef.current = image.naturalWidth / image.naturalHeight;
+    const dets = enrich(
+      await detectYolo(image, image.naturalWidth, image.naturalHeight),
+      leftAspectRef.current,
+    );
+    setLeftDets(dets);
+    if (!dets.length) {
+      setDetectError("参考图里没有识别到主体");
+    } else {
       setDetectError(null);
-      const image = await loadHtmlImage(url);
-      leftPixelsRef.current = imagePixels(image);
-      const dets = await detectYolo(image, image.naturalWidth, image.naturalHeight);
-      setLeftDets(dets);
-      if (!dets.length) {
-        setDetectError("左边图片没有识别到主体");
-      }
-    } catch (err) {
-      setLeftDets([]);
-      setDetectError(err instanceof Error ? err.message : "主体识别失败");
     }
   }, []);
 
@@ -100,7 +133,10 @@ export function FlyvisionWorkbench() {
     if (modelState !== "ready" || !uploadUrl) {
       return;
     }
-    void runLeftDetect(uploadUrl);
+    void runLeftDetect(uploadUrl).catch((err: Error) => {
+      setLeftDets([]);
+      setDetectError(err.message);
+    });
   }, [modelState, uploadUrl, runLeftDetect]);
 
   useEffect(() => {
@@ -121,28 +157,29 @@ export function FlyvisionWorkbench() {
         await video.play();
         setCamError(null);
         const tick = async () => {
-          if (stopped) {
+          if (stopped || !video.videoWidth) {
+            timer = window.setTimeout(() => void tick(), 360);
             return;
           }
-          if (video.videoWidth && video.videoHeight) {
-            try {
-              const dets = await detectYolo(video, video.videoWidth, video.videoHeight);
-              if (!stopped) {
-                setRightDets(dets);
-              }
-            } catch (err) {
-              if (!stopped) {
-                setDetectError(err instanceof Error ? err.message : "摄像头识别失败");
-              }
+          try {
+            const aspect = video.videoWidth / video.videoHeight;
+            const dets = enrich(
+              await detectYolo(video, video.videoWidth, video.videoHeight),
+              aspect,
+            );
+            if (!stopped) {
+              setRightDets(dets);
+            }
+          } catch (err) {
+            if (!stopped) {
+              setDetectError(err instanceof Error ? err.message : "实拍识别失败");
             }
           }
-          timer = window.setTimeout(() => {
-            void tick();
-          }, 320);
+          timer = window.setTimeout(() => void tick(), 360);
         };
         void tick();
       } catch (err) {
-        setCamError(err instanceof Error ? err.message : "无法打开摄像头");
+        setCamError(err instanceof Error ? err.message : "没有摄像头");
       }
     })();
     return () => {
@@ -170,24 +207,32 @@ export function FlyvisionWorkbench() {
       return;
     }
     ctx.drawImage(video, 0, 0);
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const live = rgbaToRgb(data.data, canvas.width, canvas.height);
-    const leftFeat = extractFeatures(leftPixels, left.box);
-    const rightFeat = extractFeatures(live, right.box);
-    const match = scoreMatch(rightFeat, leftFeat, 0.72);
-    const target: [number, number] = [left.box.x + left.box.w / 2, left.box.y + left.box.h / 2];
-    const composition = judgeComposition(right.box, target, 0.12);
+    const live = rgbaToRgb(
+      ctx.getImageData(0, 0, canvas.width, canvas.height).data,
+      canvas.width,
+      canvas.height,
+    );
+    const match = scoreMatch(
+      extractFeatures(live, right.box),
+      extractFeatures(leftPixels, left.box),
+      0.72,
+    );
+    const composition = judgeComposition(
+      right.box,
+      [left.box.x + left.box.w / 2, left.box.y + left.box.h / 2],
+      0.12,
+    );
     const step = nextDecision(match.sceneMatch, composition.compositionOk, stableRef.current, 4);
     stableRef.current = step.nextCount;
+    const leftFix = "spatial" in left ? (left as RichDet).spatial : null;
+    const rightFix = "spatial" in right ? (right as RichDet).spatial : null;
     setVerdict({
       similarity: match.similarity,
-      dx: composition.dx,
-      dy: composition.dy,
-      compositionOk: composition.compositionOk,
-      sceneMatch: match.sceneMatch,
       decision: step.decision,
-      leftLabel: `${left.label} ${(left.score * 100).toFixed(0)}%`,
-      rightLabel: `${right.label} ${(right.score * 100).toFixed(0)}%`,
+      compositionOk: composition.compositionOk,
+      spatial: leftFix && rightFix ? compareSpatial(leftFix, rightFix) : null,
+      leftLabel: zh(left.label),
+      rightLabel: zh(right.label),
     });
   }, [leftDets, rightDets]);
 
@@ -198,41 +243,44 @@ export function FlyvisionWorkbench() {
     if (uploadUrl) {
       URL.revokeObjectURL(uploadUrl);
     }
-    const url = URL.createObjectURL(file);
-    setUploadUrl(url);
+    setUploadUrl(URL.createObjectURL(file));
     setLeftDets([]);
     stableRef.current = 0;
   }
 
-  const leftPrimary = primarySubject(leftDets);
-  const rightPrimary = primarySubject(rightDets);
+  const leftPrimary = primarySubject(leftDets) as RichDet | null;
+  const rightPrimary = primarySubject(rightDets) as RichDet | null;
   const go = verdict?.decision === CAPTURE_GO;
 
   return (
-    <div className="workbench fv-page">
-      <header className="hdr">
-        <div className="brand">
-          <Link href="/yunjing">
-            <b>YUNJING</b>
-          </Link>
-          <span>FLYVISION · YOLOv8n</span>
-        </div>
-        <div className="hdr-actions">
-          <span className="fv-model">
-            {modelState === "loading"
-              ? "加载 YOLOv8n…"
-              : modelState === "ready"
-                ? "YOLOv8n 已就绪"
-                : "模型失败"}
-          </span>
-        </div>
+    <div className="apple-app">
+      <header className="apple-top">
+        <strong>
+          <Link href="/yunjing">Flyvision</Link>
+        </strong>
+        <nav>
+          <Link href="/flyvision/plan">计划</Link>
+          <Link href="/yunjing">云径</Link>
+        </nav>
+        <span
+          className={`apple-dot${modelState === "ready" ? " ready" : ""}${
+            modelState === "error" ? " bad" : ""
+          }`}
+        >
+          <i />
+          {modelState === "loading"
+            ? "YOLOv8n 加载中"
+            : modelState === "ready"
+              ? "YOLOv8n · 空间估计"
+              : "模型失败"}
+        </span>
       </header>
 
-      <div className="fv-split">
-        <section className="fv-pane">
-          <p className="fv-kicker">左边 · 上传图 · 主体识别</p>
+      <div className="apple-split">
+        <section className="apple-pane">
+          <h2>参考</h2>
           <div
-            className="fv-frame"
+            className="apple-well"
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
@@ -240,135 +288,149 @@ export function FlyvisionWorkbench() {
             }}
           >
             {uploadUrl ? (
-              <div className="fv-media">
-                <img ref={leftImgRef} className="fv-live" src={uploadUrl} alt="uploaded reference" />
-                <DetBoxes dets={leftDets} primary={leftPrimary} />
+              <div className="apple-media">
+                <img src={uploadUrl} alt="" />
+                <Boxes dets={leftDets} primary={leftPrimary} />
               </div>
             ) : (
-              <button
-                className="fv-empty"
-                type="button"
-                onClick={() => fileRef.current?.click()}
-              >
-                上传参考图
-                <em>YOLO 会框出人 / 车 / 建筑等主体</em>
+              <button className="apple-drop" type="button" onClick={() => fileRef.current?.click()}>
+                <span>上传图片</span>
+                <em>识别主体，并估计距离</em>
               </button>
             )}
           </div>
-          <div className="fv-tools">
-            <button className="btn primary" type="button" onClick={() => fileRef.current?.click()}>
-              {uploadUrl ? "换一张图" : "上传图"}
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(event) => {
-                onUpload(event.target.files?.[0]);
-                event.target.value = "";
-              }}
-            />
-          </div>
-          <DetList dets={leftDets} empty="还没有识别结果" />
+          <Pills
+            dets={leftDets}
+            empty="还没有参考图"
+            onUpload={() => fileRef.current?.click()}
+            canUpload
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => {
+              onUpload(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
         </section>
 
-        <section className="fv-pane">
-          <p className="fv-kicker">右边 · 摄像头</p>
-          <div className="fv-frame">
-            <div className="fv-media">
-              <video ref={videoRef} className="fv-live" muted playsInline autoPlay />
-              <DetBoxes dets={rightDets} primary={rightPrimary} />
+        <section className="apple-pane">
+          <h2>实拍</h2>
+          <div className="apple-well">
+            <div className="apple-media">
+              <video ref={videoRef} muted playsInline autoPlay />
+              <Boxes dets={rightDets} primary={rightPrimary} />
             </div>
-            {camError ? <p className="fv-cam-error">{camError}</p> : null}
+            {camError ? <p className="apple-cam-err">{camError}</p> : null}
           </div>
-          <p className="fv-hint">摄像头画面实时跑同一套 YOLOv8n，主体框跟左边对比。</p>
-          <DetList dets={rightDets} empty={camError ? camError : "等待摄像头画面"} />
+          <Pills dets={rightDets} empty={camError ?? "等待画面"} />
         </section>
       </div>
 
-      <footer className="fv-bar">
-        <div className={`fv-go${go ? " is-go" : ""}`}>
-          {verdict?.decision ?? CONTINUE_FOLLOW}
+      <footer className="apple-meter">
+        <div className={`apple-status${go ? " go" : ""}`}>
+          {verdict?.spatial?.summary ?? (go ? "可以拍" : "继续对齐")}
         </div>
         <dl>
           <div>
-            <dt>左主体</dt>
-            <dd>{verdict?.leftLabel ?? leftPrimary?.label ?? "—"}</dd>
+            <dt>参考主体</dt>
+            <dd>{spatialLine(leftPrimary) ?? "—"}</dd>
           </div>
           <div>
-            <dt>右主体</dt>
-            <dd>{verdict?.rightLabel ?? rightPrimary?.label ?? "—"}</dd>
+            <dt>实拍主体</dt>
+            <dd>{spatialLine(rightPrimary) ?? "—"}</dd>
           </div>
           <div>
-            <dt>similarity</dt>
-            <dd>{verdict ? verdict.similarity.toFixed(3) : "—"}</dd>
+            <dt>相似度</dt>
+            <dd>{verdict ? verdict.similarity.toFixed(2) : "—"}</dd>
           </div>
           <div>
-            <dt>Δx / Δy</dt>
-            <dd>
-              {verdict
-                ? `${verdict.dx >= 0 ? "+" : ""}${verdict.dx.toFixed(3)} / ${
-                    verdict.dy >= 0 ? "+" : ""
-                  }${verdict.dy.toFixed(3)}`
-                : "—"}
-            </dd>
-          </div>
-          <div>
-            <dt>COMPOSITION_OK</dt>
-            <dd>{verdict ? String(verdict.compositionOk) : "—"}</dd>
+            <dt>构图</dt>
+            <dd>{verdict ? (verdict.compositionOk ? "对齐" : "未对齐") : "—"}</dd>
           </div>
         </dl>
-        {detectError ? <p className="fv-error">{detectError}</p> : null}
+        {detectError ? <p className="apple-error">{detectError}</p> : null}
       </footer>
     </div>
   );
 }
 
-function DetBoxes({
+function spatialLine(det: RichDet | null): string | null {
+  if (!det) {
+    return null;
+  }
+  const name = zh(det.label);
+  if (!det.spatial) {
+    return name;
+  }
+  return `${name}  ${formatMeters(det.spatial.distanceM)}  ${headingLabel(det.spatial.heading)}`;
+}
+
+function Boxes({
   dets,
   primary,
 }: {
-  dets: YoloDet[];
-  primary: YoloDet | null;
+  dets: RichDet[];
+  primary: RichDet | null;
 }) {
   return (
     <>
-      {dets.map((det, index) => {
-        const isPrimary = primary === det;
-        return (
-          <span
-            key={`${det.label}-${index}`}
-            className={`fv-box${isPrimary ? " is-ok" : ""}`}
-            style={{
-              left: `${det.box.x * 100}%`,
-              top: `${det.box.y * 100}%`,
-              width: `${det.box.w * 100}%`,
-              height: `${det.box.h * 100}%`,
-            }}
-          >
-            <i>
-              {det.label} {(det.score * 100).toFixed(0)}%
-            </i>
-          </span>
-        );
-      })}
+      {dets.map((det, index) => (
+        <span
+          key={`${det.label}-${index}`}
+          className={`apple-box${primary === det ? " is-on" : ""}`}
+          style={{
+            left: `${det.box.x * 100}%`,
+            top: `${det.box.y * 100}%`,
+            width: `${det.box.w * 100}%`,
+            height: `${det.box.h * 100}%`,
+          }}
+        >
+          <b>
+            {zh(det.label)}
+            {det.spatial ? `  ${formatMeters(det.spatial.distanceM)}` : ""}
+          </b>
+        </span>
+      ))}
     </>
   );
 }
 
-function DetList({ dets, empty }: { dets: YoloDet[]; empty: string }) {
-  if (!dets.length) {
-    return <p className="fv-hint">{empty}</p>;
-  }
+function Pills({
+  dets,
+  empty,
+  onUpload,
+  canUpload,
+}: {
+  dets: RichDet[];
+  empty: string;
+  onUpload?: () => void;
+  canUpload?: boolean;
+}) {
   return (
-    <ul className="fv-dets">
-      {dets.map((det, index) => (
-        <li key={`${det.label}-${index}`}>
-          <b>{det.label}</b>
-          <span>{(det.score * 100).toFixed(0)}%</span>
-        </li>
-      ))}
-    </ul>
+    <div className="apple-pills">
+      {canUpload ? (
+        <button type="button" onClick={onUpload}>
+          {dets.length ? "换图" : "上传"}
+        </button>
+      ) : null}
+      {dets.length ? (
+        dets.map((det, index) => (
+          <span className="apple-pill" key={`${det.label}-${index}`}>
+            {zh(det.label)}
+            <em>
+              {det.spatial
+                ? `${formatMeters(det.spatial.distanceM)} · ${headingLabel(det.spatial.heading)}`
+                : `${(det.score * 100).toFixed(0)}%`}
+            </em>
+          </span>
+        ))
+      ) : (
+        <p className="apple-muted">{empty}</p>
+      )}
+    </div>
   );
 }
