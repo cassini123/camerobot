@@ -21,6 +21,7 @@
     "jspdf": "^4.2.1",
     "mediabunny": "^1.55.3",
     "next": "^15.5.24",
+    "onnxruntime-web": "^1.21.0",
     "openai": "^7.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
