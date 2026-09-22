@@ -259,7 +259,7 @@ export function FlyvisionWorkbench() {
     };
   }, [camOn, camUrl, source, scoreFrame]);
 
-  function useShotAsLive(shot: ShotJson) {
+  function applyShotAsLive(shot: ShotJson) {
     setSource("still");
     setCamOn(false);
     setLiveUrl(shotImage(shot));
@@ -276,6 +276,8 @@ export function FlyvisionWorkbench() {
     setBox({
       x: Math.max(0, Math.min(1 - w, x - w / 2)),
       y: Math.max(0, Math.min(1 - h, y - h / 2)),
+      w,
+      h,
     });
     stableRef.current = 0;
   }
@@ -323,13 +325,13 @@ export function FlyvisionWorkbench() {
               </span>
             </button>
           ))}
-          <button className="btn primary" type="button" onClick={() => useShotAsLive(active)}>
+          <button className="btn primary" type="button" onClick={() => applyShotAsLive(active)}>
             用当前 Shot 参考图当画面
           </button>
           <button
             className="btn"
             type="button"
-            onClick={() => useShotAsLive(shots.find((item) => item.shot_id === "shot_01") ?? shots[0])}
+            onClick={() => applyShotAsLive(shots.find((item) => item.shot_id === "shot_01") ?? shots[0])}
           >
             错配：用 Shot 01 去对 {active.shot_id.replace("shot_", "Shot ")}
           </button>
@@ -340,7 +342,6 @@ export function FlyvisionWorkbench() {
             {source === "webcam" ? (
               <video ref={videoRef} className="fv-live" muted playsInline />
             ) : (
-              // eslint-disable-next-line @next/next/no-img-element
               <img className="fv-live" src={liveUrl} alt="live frame" />
             )}
             <span
@@ -453,7 +454,6 @@ export function FlyvisionWorkbench() {
             <div className="fv-caps">
               <p className="fv-kicker">GO captures</p>
               {captures.map((item) => (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img key={item.id} src={item.src} alt="" />
               ))}
             </div>
