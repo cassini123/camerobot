@@ -50,7 +50,9 @@ export function ProductHub() {
   return (
     <div className="product-hub">
       <header className="product-top">
-        <span />
+        <Link className="product-mark" href="/flyvision">
+          flyvision
+        </Link>
         <a className="product-mark" href="https://everec.coze.site">
           everec
         </a>

@@ -14,6 +14,10 @@ node_modules/
 .env.local
 *.tsbuildinfo
 
+# flyvision capture dumps (GO frames from the live matcher).
+flyvision/data/captures/*
+!flyvision/data/captures/.gitkeep
+
 # Reconstruction assets are too large for GitHub (model.ply ~3.3GB).
 example/*.ply
 example/*.PLY

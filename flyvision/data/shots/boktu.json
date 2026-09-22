@@ -1,0 +1,106 @@
+{
+  "project": {
+    "id": "boktu-flyvision",
+    "name": "博克图"
+  },
+  "story_id": "story_001",
+  "notes": "Phase-1 shot database for CinePath scene_02 穿行. Spatial fields are recorded, not used for Capture GO.",
+  "shots": [
+    {
+      "shot_id": "shot_01",
+      "scene_id": "scene_02",
+      "title": "Establishing",
+      "kind": "establishing",
+      "target": {
+        "type": "building",
+        "object_id": "railway_building",
+        "position": [0.0, 1.8, 8.0]
+      },
+      "camera": {
+        "position": [0.0, 2.1, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "lens": 24,
+        "height": 2.1,
+        "angle": "eye_level"
+      },
+      "composition": {
+        "subject_ratio": 0.22,
+        "horizontal": 0.5,
+        "vertical": 0.48
+      },
+      "movement": {
+        "type": "DOLLY_IN",
+        "duration": 4
+      },
+      "spatial": {
+        "position": [0.0, 2.1, 0.0],
+        "distance_m": 8.0
+      },
+      "reference": "reference/shot_01.bmp"
+    },
+    {
+      "shot_id": "shot_02",
+      "scene_id": "scene_02",
+      "title": "Follow",
+      "kind": "follow",
+      "target": {
+        "type": "person",
+        "object_id": "character_01",
+        "position": [0.4, 1.5, 4.0]
+      },
+      "camera": {
+        "position": [-1.2, 1.55, 1.5],
+        "rotation": [0.0, 20.0, 0.0],
+        "lens": 35,
+        "height": 1.55,
+        "angle": "rear_3_4"
+      },
+      "composition": {
+        "subject_ratio": 0.31,
+        "horizontal": 0.33,
+        "vertical": 0.52
+      },
+      "movement": {
+        "type": "FOLLOW",
+        "duration": 6
+      },
+      "spatial": {
+        "position": [-1.2, 1.55, 1.5],
+        "distance_m": 3.2
+      },
+      "reference": "reference/shot_02.bmp"
+    },
+    {
+      "shot_id": "shot_03",
+      "scene_id": "scene_02",
+      "title": "Reveal",
+      "kind": "reveal",
+      "target": {
+        "type": "person",
+        "object_id": "character_01",
+        "position": [0.0, 1.5, 5.0]
+      },
+      "camera": {
+        "position": [0.0, 1.6, 1.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "lens": 35,
+        "height": 1.6,
+        "angle": "eye_level"
+      },
+      "composition": {
+        "subject_ratio": 0.28,
+        "horizontal": 0.38,
+        "vertical": 0.5
+      },
+      "movement": {
+        "type": "ORBIT",
+        "duration": 5
+      },
+      "spatial": {
+        "position": [0.0, 1.6, 1.0],
+        "distance_m": 4.1
+      },
+      "reference": "reference/shot_03.bmp"
+    }
+  ]
+}
