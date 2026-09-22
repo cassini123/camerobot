@@ -21,8 +21,9 @@
    **MobileCLIP2-S0** 余弦为主，HSV 直方图只当色调辅项。框中心构图判决不换成嵌入。
 3. **空间估计**（`lib/spatial.ts`）  
    针孔相机，但按 **可见部位** 取尺度：全身 1.7 m，半身 / 胸上 / 近景用对应身高，并和肩宽/头宽交叉验证。  
-   可标定视场 / 身高；截断框可丢弃；实拍 5 帧中值。  
-   框中心相对光轴估 **左右 / 高低（米）**。实拍减参考：近了多少、偏左/偏右多少。
+   可标定视场 / 身高；截断框可丢弃。  
+   框中心相对光轴估 **左右 / 高低（米）**。实拍减参考：近了多少、偏左/偏右多少。  
+   **静帧**仍是单框针孔（可选 5 帧中值）。**视频 / 摄像头**走 `VideoSpatialTracker`：IoU 锁同一主体，距离/左右/高低做匀速滤波；框高变大当靠近线索，框抖动不当成近了/远了。不把 Depth Anything 拉进 360 ms 循环。
 4. **景别标签**（`lib/shot-labels.ts`）  
    FilmOps 式景别（ECU→ELS）+ 构图标签，参考图离线打标。
 5. **PC 深度融合**（`flyvision/python/flyvision/depth.py`）  
@@ -36,7 +37,7 @@
 Camera frame
   → resize / crop
   → YOLOv8n 主体
-  → 空间：distance / right / up
+  → 空间：静帧针孔 / 视频 IoU 跟踪 + 匀速滤波
   → 参考图 vs 实拍：match + composition + Δmeters
   → 稳定 N 帧 → GO
 ```
@@ -45,7 +46,7 @@ Camera frame
 | --- | --- | --- |
 | 1 Camera | 上传 + getUserMedia / 日后 ESP32-CAM | 出帧 |
 | 2 Scene | `lib/yolo.ts` | 人 / 车 / … |
-| 2b Space | `lib/spatial.ts` | 相对位置、大致距离 |
+| 2b Space | `lib/spatial.ts` | 静帧针孔；视频跟踪同一人并平滑 Δmeters |
 | 3 Match | `lib/flyvision-match.ts` | 像不像参考 |
 | 4 Composition | 同一文件 `judgeComposition` | 框中心是否对齐 |
 | 5 Capture | 稳定帧决策 | 只提示 GO，不驱动飞控 |
@@ -61,7 +62,7 @@ right    ≈ distance · (cx − 0.5) · 2 · tan(hfov/2)
 up       ≈ distance · (0.5 − cy) · 2 · tan(vfov/2)
 ```
 
-`right` / `up` 用的是针孔的 `tan(θ)` 线性映射，不再套一层 `tan`。实拍距离再做 5 帧中值。误差仍来自真实体型、未标定视场、姿态。这是 **大致距离**，不是 RTK。
+`right` / `up` 用的是针孔的 `tan(θ)` 线性映射，不再套一层 `tan`。静帧可做 5 帧中值；视频对同一轨迹做匀速滤波，并用框高变化核对靠近/远离。误差仍来自真实体型、未标定视场、姿态。这是 **大致距离**，不是 RTK。
 
 ## 刻意还没接
 

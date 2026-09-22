@@ -24,7 +24,7 @@ import {
   estimateSpatial,
   formatDistance,
   headingLabel,
-  SpatialSmoother,
+  VideoSpatialTracker,
   type SpatialDelta,
   type SpatialFix,
   type SpatialOptions,
@@ -45,7 +45,7 @@ const LABEL_ZH: Record<string, string> = {
   backpack: "包",
 };
 
-type RichDet = YoloDet & { spatial: SpatialFix | null };
+type RichDet = YoloDet & { spatial: SpatialFix | null; trackId?: number };
 
 function zh(label: string): string {
   return LABEL_ZH[label] ?? label;
@@ -83,6 +83,13 @@ function enrich(dets: YoloDet[], options: SpatialOptions): RichDet[] {
   }));
 }
 
+function pickLivePrimary(dets: RichDet[], trackId: number | null): RichDet | null {
+  if (trackId != null) {
+    return dets.find((det) => det.trackId === trackId) ?? null;
+  }
+  return (primarySubject(dets) as RichDet | null) ?? null;
+}
+
 export function FlyvisionWorkbench() {
   const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
   const [clipState, setClipState] = useState<"loading" | "ready" | "error">("loading");
@@ -111,7 +118,8 @@ export function FlyvisionWorkbench() {
   const leftPixelsRef = useRef<RgbPixels | null>(null);
   const leftAspectRef = useRef(16 / 9);
   const leftEmbedRef = useRef<number[] | null>(null);
-  const liveSmoothRef = useRef(new SpatialSmoother(5));
+  const liveTrackRef = useRef(new VideoSpatialTracker());
+  const [rightTrackId, setRightTrackId] = useState<number | null>(null);
   const spatialOpts = useMemo(
     () => ({ hfovDeg, personHeightM, rejectPartial }),
     [hfovDeg, personHeightM, rejectPartial],
@@ -230,18 +238,31 @@ export function FlyvisionWorkbench() {
               aspect,
               ...spatialOptsRef.current,
             });
-            const primary = primarySubject(dets);
-            const smoothed = liveSmoothRef.current.push(
-              primary && "spatial" in primary ? (primary as RichDet).spatial : null,
-            );
+            const tracked = liveTrackRef.current.push(dets, {
+              aspect,
+              ...spatialOptsRef.current,
+            });
             const next = dets.map((det) =>
-              primary && det === primary ? { ...det, spatial: smoothed } : det,
+              tracked.det && det === tracked.det
+                ? { ...det, spatial: tracked.spatial, trackId: tracked.trackId ?? undefined }
+                : det,
             );
+            if (tracked.det && tracked.trackId != null && !next.some((det) => det.trackId === tracked.trackId)) {
+              next.push({
+                label: tracked.det.label,
+                score: tracked.det.score ?? 1,
+                box: tracked.det.box,
+                spatial: tracked.spatial,
+                trackId: tracked.trackId,
+              });
+            }
             if (!stopped) {
               setRightDets(next);
+              setRightTrackId(tracked.trackId);
+              const live = next.find((det) => det.trackId === tracked.trackId) ?? tracked.det;
               setRightLabels(
-                primary
-                  ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1))
+                live
+                  ? labelShot(live.box, live.label, Math.max(0, dets.length - 1))
                   : null,
               );
             }
@@ -260,14 +281,20 @@ export function FlyvisionWorkbench() {
     return () => {
       stopped = true;
       window.clearTimeout(timer);
-      liveSmoothRef.current.reset();
+      liveTrackRef.current.resetTracks();
+      setRightTrackId(null);
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, [modelState]);
 
   useEffect(() => {
+    const left = primarySubject(leftDets) as RichDet | null;
+    liveTrackRef.current.setReference(left?.spatial ?? null);
+  }, [leftDets]);
+
+  useEffect(() => {
     const left = primarySubject(leftDets);
-    const right = primarySubject(rightDets);
+    const right = pickLivePrimary(rightDets, rightTrackId);
     const leftPixels = leftPixelsRef.current;
     const video = videoRef.current;
     if (!left || !right || !leftPixels || !video?.videoWidth) {
@@ -337,7 +364,7 @@ export function FlyvisionWorkbench() {
     return () => {
       cancelled = true;
     };
-  }, [leftDets, rightDets, leftLabels, rightLabels]);
+  }, [leftDets, rightDets, leftLabels, rightLabels, rightTrackId]);
 
   function onUpload(file: File | undefined) {
     if (!file) {
@@ -352,7 +379,7 @@ export function FlyvisionWorkbench() {
   }
 
   const leftPrimary = primarySubject(leftDets) as RichDet | null;
-  const rightPrimary = primarySubject(rightDets) as RichDet | null;
+  const rightPrimary = pickLivePrimary(rightDets, rightTrackId);
   const go = verdict?.decision === CAPTURE_GO;
 
   return (

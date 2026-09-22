@@ -29,7 +29,7 @@ plans robot motion. flyvision consumes those shots and scores a live frame.
 | --- | --- | --- |
 | 1 Camera | `camera.py`, `preprocess.py`, `firmware/esp32cam` | MJPEG / webcam / still; crop-resize 256×256 |
 | 2 Scene | browser `lib/yolo.ts` | **YOLOv8n** in-page (onnxruntime-web). No injected boxes. |
-| 2b Space | `lib/spatial.ts`, `spatial.py`, `depth.py` | Crop-aware pinhole + FOV/height cal; PC can fuse DA-V2 Metric |
+| 2b Space | `lib/spatial.ts`, `spatial.py`, `depth.py` | Crop-aware pinhole + video IoU tracker; PC can fuse DA-V2 Metric |
 | 3 Shot matching | `match.py`, `lib/clip-embed.ts` | **MobileCLIP2-S0** cosine; HSV is color only |
 | 3b Labels | `shot_labels.py`, `lib/shot-labels.ts` | FilmOps-style scale + composition tags |
 | 4 Composition | `composition.py` | Person center vs `composition.horizontal/vertical` (not embeddings) |

@@ -15,6 +15,7 @@ from flyvision.match import DEFAULT_MATCH_THRESHOLD
 from flyvision.pipeline import VisionPipeline
 from flyvision.scene import Detection, HogPersonDetector, StubDetector, default_detector
 from flyvision.shots import load_shot_database
+from flyvision.spatial import SpatialDet, VideoSpatialTracker
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -164,11 +165,24 @@ def run_stream(args: argparse.Namespace) -> int:
         stable_frames=args.stable_frames,
         capture_dir=args.capture_dir,
     )
+    tracker = VideoSpatialTracker()
     frames = iter_frames(url=args.url, webcam=args.webcam)
     try:
         for index, frame in enumerate(frames, start=1):
             verdict = pipeline.push(frame, auto_select=args.auto_select)
-            print(verdict.as_row(), flush=True)
+            aspect = frame.width / max(1, frame.height)
+            tracked = tracker.push(
+                [SpatialDet(item.label, item.bbox_norm, item.confidence) for item in verdict.detections],
+                aspect=aspect,
+            )
+            if tracked.spatial and tracker.get_reference() is None:
+                tracker.set_reference(tracked.spatial)
+            line = verdict.as_row()
+            if tracked.spatial:
+                line += f" dist={tracked.spatial.distance_m:.2f}m {tracked.spatial.heading}"
+            if tracked.delta:
+                line += f" {tracked.delta.summary}"
+            print(line, flush=True)
             if verdict.capture_path:
                 print(f"saved {verdict.capture_path}", flush=True)
             if args.max_frames and index >= args.max_frames:

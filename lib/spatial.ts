@@ -264,6 +264,391 @@ export class SpatialSmoother {
   }
 }
 
+/** Minimal detection the video tracker needs. Compatible with YoloDet. */
+export type SpatialDet = {
+  label: string;
+  box: BBox;
+  score?: number;
+};
+
+export type VideoSpatialResult = {
+  trackId: number | null;
+  det: SpatialDet | null;
+  spatial: SpatialFix | null;
+  raw: SpatialFix | null;
+  delta: SpatialDelta | null;
+  matched: boolean;
+};
+
+type AxisFilter = {
+  x: number;
+  v: number;
+  p00: number;
+  p01: number;
+  p11: number;
+};
+
+type VideoTrack = {
+  id: number;
+  label: string;
+  box: BBox;
+  score: number;
+  missed: number;
+  crop: BodyCrop | null;
+  cropHold: BodyCrop | null;
+  cropHoldCount: number;
+  lastH: number;
+  hVel: number;
+  dist: AxisFilter;
+  right: AxisFilter;
+  up: AxisFilter;
+  heading: SpatialFix["heading"];
+  lastFix: SpatialFix | null;
+  lastRaw: SpatialFix | null;
+};
+
+const DEFAULT_VIDEO_DT = 0.36;
+const TRACK_IOU_MIN = 0.18;
+const TRACK_PAIR_MIN = 0.08;
+const TRACK_MAX_MISS = 5;
+const HEADING_ENTER = 0.34;
+const HEADING_LEAVE = 0.2;
+
+/**
+ * Live-camera ranging: IoU/centroid lock on one subject, then a
+ * constant-velocity filter on distance / right / up. Still frames keep
+ * using estimateSpatial + optional SpatialSmoother.
+ */
+export class VideoSpatialTracker {
+  private tracks: VideoTrack[] = [];
+  private nextId = 1;
+  private primaryId: number | null = null;
+  private reference: SpatialFix | null = null;
+  private lastMs: number | null = null;
+
+  setReference(fix: SpatialFix | null): void {
+    this.reference = fix ? { ...fix } : null;
+  }
+
+  getReference(): SpatialFix | null {
+    return this.reference;
+  }
+
+  reset(): void {
+    this.tracks = [];
+    this.nextId = 1;
+    this.primaryId = null;
+    this.reference = null;
+    this.lastMs = null;
+  }
+
+  resetTracks(): void {
+    this.tracks = [];
+    this.nextId = 1;
+    this.primaryId = null;
+    this.lastMs = null;
+  }
+
+  push(dets: SpatialDet[], options: SpatialOptions = {}, nowMs?: number): VideoSpatialResult {
+    const dt = this.stepDt(nowMs);
+    const matched = new Array<SpatialDet | null>(this.tracks.length).fill(null);
+    const used = new Set<number>();
+    const pairs: { ti: number; di: number; score: number }[] = [];
+    this.tracks.forEach((track, ti) => {
+      dets.forEach((det, di) => {
+        if (det.label !== track.label) {
+          return;
+        }
+        const score = pairScore(track.box, det.box);
+        if (score >= TRACK_PAIR_MIN && boxOverlap(track.box, det.box) >= TRACK_IOU_MIN * 0.5) {
+          pairs.push({ ti, di, score });
+        }
+      });
+    });
+    pairs.sort((a, b) => b.score - a.score);
+    for (const pair of pairs) {
+      if (matched[pair.ti] || used.has(pair.di)) {
+        continue;
+      }
+      if (boxOverlap(this.tracks[pair.ti].box, dets[pair.di].box) < TRACK_IOU_MIN && pair.score < 0.22) {
+        continue;
+      }
+      matched[pair.ti] = dets[pair.di];
+      used.add(pair.di);
+    }
+
+    this.tracks.forEach((track, ti) => {
+      const det = matched[ti];
+      if (!det) {
+        predictAxis(track.dist, dt, 0.12);
+        predictAxis(track.right, dt, 0.18);
+        predictAxis(track.up, dt, 0.18);
+        track.missed += 1;
+        if (track.lastFix) {
+          track.lastFix = finishFix(track, track.lastFix);
+        }
+        return;
+      }
+      track.missed = 0;
+      track.box = det.box;
+      track.score = det.score ?? track.score;
+      const raw = estimateSpatial(det.label, det.box, options);
+      track.lastRaw = raw;
+      this.updateTrack(track, det, raw, dt);
+    });
+
+    dets.forEach((det, di) => {
+      if (used.has(di)) {
+        return;
+      }
+      this.tracks.push(this.spawnTrack(det, estimateSpatial(det.label, det.box, options)));
+    });
+
+    this.tracks = this.tracks.filter((track) => track.missed <= TRACK_MAX_MISS);
+    this.lockPrimary(dets);
+
+    const primary = this.tracks.find((track) => track.id === this.primaryId) ?? null;
+    const matchedDet =
+      primary == null
+        ? null
+        : dets.find(
+            (det) =>
+              det.label === primary.label &&
+              boxOverlap(det.box, primary.box) >= TRACK_IOU_MIN * 0.6,
+          ) ?? (primary.missed === 0 ? { label: primary.label, box: primary.box, score: primary.score } : null);
+    const spatial = primary?.lastFix ?? null;
+    const raw = primary?.lastRaw ?? null;
+    return {
+      trackId: primary?.id ?? null,
+      det: matchedDet,
+      spatial,
+      raw,
+      delta: this.reference && spatial ? compareSpatial(this.reference, spatial) : null,
+      matched: Boolean(primary && primary.missed === 0),
+    };
+  }
+
+  private stepDt(nowMs?: number): number {
+    const now =
+      nowMs ??
+      (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const elapsed = this.lastMs == null ? DEFAULT_VIDEO_DT * 1000 : now - this.lastMs;
+    this.lastMs = now;
+    if (elapsed < 20) {
+      return DEFAULT_VIDEO_DT;
+    }
+    return clamp(elapsed / 1000, 0.08, 1.2);
+  }
+
+  private spawnTrack(det: SpatialDet, raw: SpatialFix | null): VideoTrack {
+    const track: VideoTrack = {
+      id: this.nextId++,
+      label: det.label,
+      box: det.box,
+      score: det.score ?? 1,
+      missed: 0,
+      crop: raw?.crop ?? null,
+      cropHold: null,
+      cropHoldCount: 0,
+      lastH: det.box.h,
+      hVel: 0,
+      dist: raw ? initAxis(raw.distanceM) : initAxis(2),
+      right: raw ? initAxis(raw.rightM) : initAxis(0),
+      up: raw ? initAxis(raw.upM) : initAxis(0),
+      heading: raw?.heading ?? "center",
+      lastFix: raw,
+      lastRaw: raw,
+    };
+    return track;
+  }
+
+  private updateTrack(track: VideoTrack, det: SpatialDet, raw: SpatialFix | null, dt: number): void {
+    const dh = det.box.h - track.lastH;
+    track.hVel = 0.45 * (dh / Math.max(dt, 1e-3)) + 0.55 * track.hVel;
+    const relH = Math.abs(dh) / Math.max(det.box.h, 0.05);
+    const growing = track.hVel > 0.04;
+    const shrinking = track.hVel < -0.04;
+    track.lastH = det.box.h;
+
+    predictAxis(track.dist, dt, growing || shrinking ? 0.28 : 0.08);
+    predictAxis(track.right, dt, 0.16);
+    predictAxis(track.up, dt, 0.16);
+
+    if (!raw) {
+      if (track.lastFix) {
+        track.lastFix = finishFix(track, track.lastFix);
+      }
+      return;
+    }
+
+    const cropChanged = lockCrop(track, raw.crop);
+    const residual = Math.abs(raw.distanceM - track.dist.x) / Math.max(track.dist.x, 0.4);
+    let rDist =
+      raw.confidence === "high" ? 0.045 : raw.confidence === "medium" ? 0.14 : 0.4;
+    if (cropChanged) {
+      rDist *= 8;
+    }
+    // Box size barely moved but pinhole jumped: YOLO flicker, not an approach.
+    if (relH < 0.03 && residual > 0.12) {
+      rDist *= 10;
+    }
+    let rLat = raw.confidence === "high" ? 0.03 : 0.1;
+    if (cropChanged) {
+      rLat *= 3;
+    }
+    updateAxis(track.dist, raw.distanceM, rDist);
+    updateAxis(track.right, raw.rightM, rLat);
+    updateAxis(track.up, raw.upM, rLat);
+    if ((growing || shrinking) && !cropChanged) {
+      const sizeVel = (-track.dist.x * track.hVel) / Math.max(det.box.h, 0.05);
+      track.dist.v = 0.55 * track.dist.v + 0.45 * sizeVel;
+    }
+    track.heading = headingWithHysteresis(track.right.x, track.heading);
+    track.lastFix = finishFix(track, raw);
+  }
+
+  private lockPrimary(dets: SpatialDet[]): void {
+    const live = this.tracks.filter((track) => track.missed <= TRACK_MAX_MISS);
+    const current = live.find((track) => track.id === this.primaryId);
+    if (current && current.missed < TRACK_MAX_MISS) {
+      return;
+    }
+    const seed = pickPrimaryDet(dets);
+    if (!seed) {
+      this.primaryId = current?.id ?? live[0]?.id ?? null;
+      return;
+    }
+    const hit = live.find(
+      (track) => track.label === seed.label && boxOverlap(track.box, seed.box) >= TRACK_IOU_MIN,
+    );
+    this.primaryId = hit?.id ?? live[0]?.id ?? null;
+  }
+}
+
+export function pickPrimaryDet<T extends SpatialDet>(dets: T[]): T | null {
+  if (!dets.length) {
+    return null;
+  }
+  const people = dets.filter((item) => item.label === "person");
+  const pool = people.length ? people : dets;
+  return pool.reduce((best, item) => {
+    const score = (item.score ?? 1) * item.box.w * item.box.h;
+    const bestScore = (best.score ?? 1) * best.box.w * best.box.h;
+    return score > bestScore ? item : best;
+  });
+}
+
+export function boxOverlap(a: BBox, b: BBox): number {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union <= 0 ? 0 : inter / union;
+}
+
+function pairScore(a: BBox, b: BBox): number {
+  const acx = a.x + a.w / 2;
+  const acy = a.y + a.h / 2;
+  const bcx = b.x + b.w / 2;
+  const bcy = b.y + b.h / 2;
+  return boxOverlap(a, b) - 0.35 * Math.hypot(acx - bcx, acy - bcy);
+}
+
+function initAxis(value: number): AxisFilter {
+  return { x: value, v: 0, p00: 0.25, p01: 0, p11: 0.6 };
+}
+
+function predictAxis(filter: AxisFilter, dt: number, q: number): void {
+  filter.x += filter.v * dt;
+  const p00 = filter.p00 + 2 * dt * filter.p01 + dt * dt * filter.p11 + (q * dt ** 4) / 4;
+  const p01 = filter.p01 + dt * filter.p11 + (q * dt ** 3) / 2;
+  const p11 = filter.p11 + q * dt * dt;
+  filter.p00 = p00;
+  filter.p01 = p01;
+  filter.p11 = p11;
+}
+
+function updateAxis(filter: AxisFilter, z: number, r: number): void {
+  const s = filter.p00 + r;
+  const k0 = filter.p00 / s;
+  const k1 = filter.p01 / s;
+  const innov = z - filter.x;
+  filter.x += k0 * innov;
+  filter.v += k1 * innov;
+  filter.p11 -= k1 * filter.p01;
+  filter.p01 *= 1 - k0;
+  filter.p00 *= 1 - k0;
+}
+
+function lockCrop(track: VideoTrack, crop: BodyCrop): boolean {
+  if (track.crop == null) {
+    track.crop = crop;
+    track.cropHold = null;
+    track.cropHoldCount = 0;
+    return false;
+  }
+  if (crop === track.crop) {
+    track.cropHold = null;
+    track.cropHoldCount = 0;
+    return false;
+  }
+  if (track.cropHold === crop) {
+    track.cropHoldCount += 1;
+  } else {
+    track.cropHold = crop;
+    track.cropHoldCount = 1;
+  }
+  if (track.cropHoldCount >= 3) {
+    track.crop = crop;
+    track.cropHold = null;
+    track.cropHoldCount = 0;
+    return false;
+  }
+  return true;
+}
+
+function headingWithHysteresis(
+  rightM: number,
+  prev: SpatialFix["heading"],
+): SpatialFix["heading"] {
+  if (prev === "right") {
+    if (rightM < -HEADING_ENTER) {
+      return "left";
+    }
+    return rightM < HEADING_LEAVE ? "center" : "right";
+  }
+  if (prev === "left") {
+    if (rightM > HEADING_ENTER) {
+      return "right";
+    }
+    return rightM > -HEADING_LEAVE ? "center" : "left";
+  }
+  if (rightM > HEADING_ENTER) {
+    return "right";
+  }
+  if (rightM < -HEADING_ENTER) {
+    return "left";
+  }
+  return "center";
+}
+
+function finishFix(track: VideoTrack, raw: SpatialFix): SpatialFix {
+  const distanceM = clamp(track.dist.x, 0.25, 80);
+  const rightM = track.right.x;
+  const upM = track.up.x;
+  return {
+    ...raw,
+    distanceM,
+    rightM,
+    upM,
+    heading: track.heading,
+    range: distanceM < 1.6 ? "near" : distanceM < 5 ? "mid" : "far",
+    crop: track.crop ?? raw.crop,
+  };
+}
+
 function inferPersonSize(box: BBox, personHeightM = REAL_HEIGHT_M.person): VisibleSize {
   const aspect = box.w / Math.max(box.h, 1e-6);
   const clip = clipFlags(box);
