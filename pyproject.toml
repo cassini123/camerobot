@@ -10,8 +10,15 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+flyvision = ["opencv-python-headless>=4.8"]
+
 [project.scripts]
 camerobot = "camerobot.cli:main"
+flyvision = "flyvision.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["camerobot*"]
+[tool.setuptools]
+packages = ["camerobot", "flyvision"]
+
+[tool.setuptools.package-dir]
+flyvision = "flyvision/python/flyvision"

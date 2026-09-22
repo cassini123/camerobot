@@ -1,0 +1,71 @@
+{
+  "project": {"id": "cinepath-fixture", "name": "博克图 export"},
+  "story": {"story_id": "story_001", "title": "博克图"},
+  "shots": [
+    {
+      "shot_id": "shot_03",
+      "scene_id": "scene_02",
+      "reference_id": "ref_reveal",
+      "title": "Reveal",
+      "kind": "reveal",
+      "target": {
+        "type": "person",
+        "object_id": "character_01",
+        "position": [0.0, 1.5, 5.0]
+      },
+      "camera": {
+        "position": [0.0, 1.6, 1.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "lens": 35,
+        "height": 1.6,
+        "angle": "eye_level"
+      },
+      "composition": {
+        "subject_ratio": 0.28,
+        "horizontal": 0.38,
+        "vertical": 0.5
+      },
+      "movement": {
+        "type": "ORBIT",
+        "start": [0.0, 1.6, 1.0],
+        "end": [1.2, 1.6, 1.4],
+        "duration": 5
+      },
+      "path": {
+        "start": [0.0, 1.6, 1.0],
+        "waypoints": [],
+        "end": [1.2, 1.6, 1.4],
+        "target": [0.0, 1.5, 5.0]
+      },
+      "match": {
+        "composition": 0.8,
+        "subject": 0.82,
+        "color": 0.7,
+        "camera": 0.74,
+        "overall": 0.78
+      },
+      "robot_hints": {
+        "base": {"x_m": 0.0, "y_m": 1.0, "yaw_deg": 0, "mode": "follow"},
+        "lift": {"height_m": 1.6, "lock_after_move": false},
+        "head": {
+          "pan_deg": 0,
+          "tilt_deg": 0,
+          "roll_deg": 0,
+          "tracking": "subject_lock"
+        },
+        "camera": {
+          "mode": "video",
+          "focal_length_hint": "normal",
+          "exposure_mode": "auto_with_face_priority",
+          "focus_mode": "subject_tracking"
+        },
+        "safety": {
+          "max_speed_mps": 0.35,
+          "human_clearance_m": 0.8,
+          "emergency_stop_required": true,
+          "privacy_indicator_required": true
+        }
+      }
+    }
+  ]
+}

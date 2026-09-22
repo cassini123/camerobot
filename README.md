@@ -35,6 +35,21 @@ Vercel 会按根目录 Next.js 项目构建。请配置环境变量 `QINGCHENG_A
 
 后续硬件仍用仓库内 Python `camerobot/` MVP0；本次导出只做数据桥。
 
+## flyvision（无人机视觉第一期）
+
+云径导出 Shot Recipe，木机继续飞；**ESP32-CAM 只做采集/图传，电脑做人物检测、构图判断和 Shot Matching**。不改电机、ESC、飞控。见 [`flyvision/README.md`](flyvision/README.md)。
+
+```bash
+python3 -m unittest discover -s flyvision/tests
+PYTHONPATH=flyvision/python python3 -m flyvision image \
+  --shots flyvision/data/shots/boktu.json \
+  --frame flyvision/data/shots/reference/shot_03.bmp \
+  --active-shot shot_03 \
+  --bbox 0.30,0.27,0.16,0.46
+```
+
+ESP32-CAM 固件在 [`flyvision/firmware/esp32cam/`](flyvision/firmware/esp32cam/)。LiPo 必须经 DC-DC 到 5V，不要直连 CAM。
+
 > 产品心智：摄影界的智能航空母舰。
 
 ## 0. 当前可运行程序：MVP0 软件骨架
@@ -134,6 +149,7 @@ curl -X POST http://127.0.0.1:8080/shot-requests \
 
 ```bash
 python3 -m unittest discover -s tests
+python3 -m unittest discover -s flyvision/tests
 ```
 
 ## 1. 产品定位
