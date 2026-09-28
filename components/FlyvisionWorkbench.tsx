@@ -83,6 +83,23 @@ function enrich(dets: YoloDet[], options: SpatialOptions): RichDet[] {
   }));
 }
 
+function camErrorText(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "浏览器拦住了摄像头，点允许后再开";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "没有找到电脑摄像头";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "摄像头被别的程序占用";
+  }
+  if (name === "OverconstrainedError") {
+    return "这台电脑的摄像头打不开预设分辨率，换一个试试";
+  }
+  return err instanceof Error ? err.message : "没有摄像头";
+}
+
 export function FlyvisionWorkbench() {
   const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
   const [clipState, setClipState] = useState<"loading" | "ready" | "error">("loading");
@@ -95,6 +112,10 @@ export function FlyvisionWorkbench() {
   const [personHeightM, setPersonHeightM] = useState(1.7);
   const [rejectPartial, setRejectPartial] = useState(true);
   const [camError, setCamError] = useState<string | null>(null);
+  const [camLive, setCamLive] = useState(false);
+  const [camBusy, setCamBusy] = useState(false);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [cameraId, setCameraId] = useState<string>("");
   const [detectError, setDetectError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<{
     similarity: number;
@@ -107,6 +128,7 @@ export function FlyvisionWorkbench() {
   } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const stableRef = useRef(0);
   const leftPixelsRef = useRef<RgbPixels | null>(null);
   const leftAspectRef = useRef(16 / 9);
@@ -199,71 +221,138 @@ export function FlyvisionWorkbench() {
     );
   }, [spatialOpts]);
 
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    const video = videoRef.current;
+    if (video) {
+      video.srcObject = null;
+    }
+    liveSmoothRef.current.reset();
+    setCamLive(false);
+    setRightDets([]);
+    setRightLabels(null);
+    setCamBusy(false);
+  }, []);
+
+  const startCamera = useCallback(
+    async (deviceId?: string) => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCamError("这个浏览器不能开摄像头，换 Chrome 或 Safari");
+        return;
+      }
+      setCamBusy(true);
+      setCamError(null);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      const video = videoRef.current;
+      const tried: MediaStreamConstraints[] = deviceId
+        ? [
+            {
+              audio: false,
+              video: {
+                deviceId: { exact: deviceId },
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+            },
+            { audio: false, video: { deviceId: { exact: deviceId } } },
+          ]
+        : [
+            { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+            { audio: false, video: true },
+          ];
+      let stream: MediaStream | null = null;
+      let lastErr: unknown = null;
+      for (const constraints of tried) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (!stream) {
+        setCamBusy(false);
+        setCamLive(false);
+        setCamError(camErrorText(lastErr));
+        return;
+      }
+      streamRef.current = stream;
+      if (video) {
+        video.srcObject = stream;
+        try {
+          await video.play();
+        } catch {
+          // Autoplay can wait for the video element to layout; the next tick still runs.
+        }
+      }
+      const picked = stream.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId ?? "";
+      if (picked) {
+        setCameraId(picked);
+      }
+      try {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        setCameras(all.filter((item) => item.kind === "videoinput"));
+      } catch {
+        setCameras([]);
+      }
+      setCamLive(true);
+      setCamBusy(false);
+    },
+    [],
+  );
+
   useEffect(() => {
-    if (modelState !== "ready") {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!camLive || modelState !== "ready") {
       return undefined;
     }
     const video = videoRef.current;
-    let stream: MediaStream | null = null;
     let timer = 0;
     let stopped = false;
-    void (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
-          audio: false,
-        });
-        if (!video) {
-          return;
-        }
-        video.srcObject = stream;
-        await video.play();
-        setCamError(null);
-        const tick = async () => {
-          if (stopped || !video.videoWidth) {
-            timer = window.setTimeout(() => void tick(), 360);
-            return;
-          }
-          try {
-            const aspect = video.videoWidth / video.videoHeight;
-            const dets = enrich(await detectYolo(video, video.videoWidth, video.videoHeight), {
-              aspect,
-              ...spatialOptsRef.current,
-            });
-            const primary = primarySubject(dets);
-            const smoothed = liveSmoothRef.current.push(
-              primary && "spatial" in primary ? (primary as RichDet).spatial : null,
-            );
-            const next = dets.map((det) =>
-              primary && det === primary ? { ...det, spatial: smoothed } : det,
-            );
-            if (!stopped) {
-              setRightDets(next);
-              setRightLabels(
-                primary
-                  ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1))
-                  : null,
-              );
-            }
-          } catch (err) {
-            if (!stopped) {
-              setDetectError(err instanceof Error ? err.message : "实拍识别失败");
-            }
-          }
-          timer = window.setTimeout(() => void tick(), 360);
-        };
-        void tick();
-      } catch (err) {
-        setCamError(err instanceof Error ? err.message : "没有摄像头");
+    const tick = async () => {
+      if (stopped || !video?.videoWidth) {
+        timer = window.setTimeout(() => void tick(), 360);
+        return;
       }
-    })();
+      try {
+        const aspect = video.videoWidth / video.videoHeight;
+        const dets = enrich(await detectYolo(video, video.videoWidth, video.videoHeight), {
+          aspect,
+          ...spatialOptsRef.current,
+        });
+        const primary = primarySubject(dets);
+        const smoothed = liveSmoothRef.current.push(
+          primary && "spatial" in primary ? (primary as RichDet).spatial : null,
+        );
+        const next = dets.map((det) =>
+          primary && det === primary ? { ...det, spatial: smoothed } : det,
+        );
+        if (!stopped) {
+          setRightDets(next);
+          setRightLabels(
+            primary ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1)) : null,
+          );
+        }
+      } catch (err) {
+        if (!stopped) {
+          setDetectError(err instanceof Error ? err.message : "实拍识别失败");
+        }
+      }
+      timer = window.setTimeout(() => void tick(), 360);
+    };
+    void tick();
     return () => {
       stopped = true;
       window.clearTimeout(timer);
       liveSmoothRef.current.reset();
-      stream?.getTracks().forEach((track) => track.stop());
     };
-  }, [modelState]);
+  }, [camLive, modelState]);
 
   useEffect(() => {
     const left = primarySubject(leftDets);
@@ -426,19 +515,87 @@ export function FlyvisionWorkbench() {
         <section className="apple-pane">
           <h2>实拍</h2>
           <div className="apple-well">
-            <div className="apple-media">
-              <video ref={videoRef} muted playsInline autoPlay />
+            <div className={`apple-media${camLive ? "" : " is-idle"}`}>
+              <video ref={videoRef} muted playsInline />
               <Boxes dets={rightDets} primary={rightPrimary} />
             </div>
-            {camError ? <p className="apple-cam-err">{camError}</p> : null}
+            {camLive ? null : (
+              <button
+                className="apple-drop"
+                type="button"
+                disabled={modelState !== "ready" || camBusy}
+                onClick={() => void startCamera(cameraId || undefined)}
+              >
+                <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
+                <em>
+                  {modelState === "loading"
+                    ? "等 YOLOv8n 加载完"
+                    : camError ?? "先看 YOLOv8 识别，再对参考图"}
+                </em>
+              </button>
+            )}
+            {camLive && camError ? <p className="apple-cam-err">{camError}</p> : null}
           </div>
-          <Pills dets={rightDets} empty={camError ?? "等待画面"} labels={rightLabels} />
+          <div className="apple-pills">
+            {camLive ? (
+              <>
+                <button type="button" onClick={stopCamera}>
+                  关闭
+                </button>
+                {cameras.length > 1 ? (
+                  <select
+                    className="apple-cam-select"
+                    value={cameraId}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setCameraId(next);
+                      void startCamera(next);
+                    }}
+                  >
+                    {cameras.map((item, index) => (
+                      <option key={item.deviceId || String(index)} value={item.deviceId}>
+                        {item.label || `摄像头 ${index + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={modelState !== "ready" || camBusy}
+                onClick={() => void startCamera(cameraId || undefined)}
+              >
+                {camBusy ? "打开中" : "开启摄像头"}
+              </button>
+            )}
+            {rightLabels ? <span className="apple-pill">{formatShotLabels(rightLabels)}</span> : null}
+            {rightDets.length ? (
+              rightDets.map((det, index) => (
+                <span className="apple-pill" key={`${det.label}-${index}`}>
+                  {zh(det.label)}
+                  <em>
+                    {det.spatial
+                      ? `${formatDistance(det.spatial)}${
+                          cropLabel(det.spatial.crop) ? ` · ${cropLabel(det.spatial.crop)}` : ""
+                        }`
+                      : `${(det.score * 100).toFixed(0)}%`}
+                  </em>
+                </span>
+              ))
+            ) : (
+              <p className="apple-muted">
+                {camLive ? "画面里还没有主体" : camError ?? "打开电脑摄像头看 YOLOv8"}
+              </p>
+            )}
+          </div>
         </section>
       </div>
 
       <footer className="apple-meter">
         <div className={`apple-status${go ? " go" : ""}`}>
-          {verdict?.spatial?.summary ?? (go ? "可以拍" : "继续对齐")}
+          {verdict?.spatial?.summary ??
+            (go ? "可以拍" : camLive ? "继续对齐" : "打开电脑摄像头看 YOLOv8")}
         </div>
         <dl>
           <div>
