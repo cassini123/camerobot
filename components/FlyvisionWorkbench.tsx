@@ -83,6 +83,24 @@ function enrich(dets: YoloDet[], options: SpatialOptions): RichDet[] {
   }));
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new DOMException("打开摄像头超时", "NotFoundError"));
+    }, ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        window.clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 function camErrorText(err: unknown): string {
   const name = err instanceof DOMException ? err.name : "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -265,7 +283,7 @@ export function FlyvisionWorkbench() {
       let lastErr: unknown = null;
       for (const constraints of tried) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          stream = await withTimeout(navigator.mediaDevices.getUserMedia(constraints), 8000);
           break;
         } catch (err) {
           lastErr = err;
