@@ -251,7 +251,7 @@ export function judgeGeometry(
   const rangeCue: RangeCue = occupancyOk ? "远近合适" : heightRatio > 1 ? "近了" : "远了";
   const headingCue: HeadingCue = Math.abs(dx) <= offsetBand ? "居中" : dx > 0 ? "偏右" : "偏左";
   const pitchCue: PitchCue = Math.abs(dy) <= offsetBand ? "高低合适" : dy < 0 ? "偏上" : "偏下";
-  const parts = [rangeCue, headingCue];
+  const parts: Array<RangeCue | HeadingCue | PitchCue> = [rangeCue, headingCue];
   if (pitchCue !== "高低合适") {
     parts.push(pitchCue);
   }

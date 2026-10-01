@@ -621,7 +621,6 @@ export function FlyvisionWorkbench() {
           <div className="apple-well">
             <div className={`apple-media${live ? "" : " is-idle"}`}>
               <video ref={videoRef} muted playsInline hidden={liveKind !== "webcam"} />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img ref={mjpegRef} alt="" hidden={liveKind !== "esp-cam"} />
               <Boxes dets={rightDets} primary={rightPrimary} />
             </div>
@@ -633,7 +632,7 @@ export function FlyvisionWorkbench() {
                   disabled={modelState !== "ready" || camBusy}
                   onClick={() => void startCamera(cameraId || undefined)}
                 >
-                  <span>{camBusy && liveKind !== "esp-cam" ? "正在打开…" : "电脑摄像头"}</span>
+                  <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
                   <em>
                     {modelState === "loading"
                       ? "等 YOLOv8n 加载完"
