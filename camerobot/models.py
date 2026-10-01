@@ -64,6 +64,30 @@ class ShotConstraints:
 
 
 @dataclass(frozen=True)
+class StoryboardShot:
+    """One shot from an Everec/Knowgo storyboard (passthrough contract)."""
+
+    index: int
+    start_s: float = 0.0
+    end_s: float = 0.0
+    shot_type: str = "medium"
+    camera_movement: str = "static"
+    implementation: str = ""
+    subject_hint: str | None = None
+    duration_s: float | None = None
+    reference_asset_path: str | None = None
+    look_hint: str | None = None
+    drone_role: str | None = None
+
+    @property
+    def resolved_duration_s(self) -> float:
+        if self.duration_s is not None and self.duration_s > 0:
+            return float(self.duration_s)
+        span = float(self.end_s) - float(self.start_s)
+        return span if span > 0 else 3.0
+
+
+@dataclass(frozen=True)
 class ShotRequest:
     """User intent plus execution constraints."""
 
@@ -71,6 +95,7 @@ class ShotRequest:
     intent: Intent = Intent.REPLICATE_COMPOSITION
     output: OutputType = OutputType.PORTRAIT_PHOTO
     constraints: ShotConstraints = field(default_factory=ShotConstraints)
+    storyboard_shots: tuple[StoryboardShot, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -111,6 +136,8 @@ class ShotPlan:
     display_events: list[DisplayEvent]
     safety: dict[str, Any]
     drone: dict[str, Any] | None = None
+    storyboard_shots: tuple[StoryboardShot, ...] = ()
+    extend: dict[str, Any] | None = None
 
 
 def to_jsonable(value: Any) -> Any:
@@ -122,6 +149,6 @@ def to_jsonable(value: Any) -> Any:
         return {key: to_jsonable(item) for key, item in asdict(value).items()}
     if isinstance(value, dict):
         return {key: to_jsonable(item) for key, item in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [to_jsonable(item) for item in value]
     return value

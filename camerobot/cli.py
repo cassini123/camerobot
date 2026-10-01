@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 from typing import Sequence
 
 from camerobot.assets import register_reference_asset
 from camerobot.models import Intent, OutputType, ShotConstraints, to_jsonable
+from camerobot.photo_mode import run_photo_mode
 from camerobot.pipeline import run_shot_pipeline
 from camerobot.reference_analysis import analyze_reference
+from camerobot.video_mode import parse_storyboard_payload, run_video_mode
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -20,6 +23,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         asset = register_reference_asset(args.asset)
         analysis = analyze_reference(asset, Intent(args.intent))
         print_json({"asset": asset, "analysis": analysis})
+        return 0
+
+    if args.command == "photo":
+        result = run_photo_mode(args.asset, intent=Intent(args.intent))
+        print_json(result)
+        return 0
+
+    if args.command == "video":
+        raw = json.loads(Path(args.storyboard).read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            shots_payload = raw.get("storyboard_shots", raw.get("shots"))
+            fallback = raw.get("fallback_asset_path") or args.fallback_asset
+            intent_value = raw.get("intent", args.intent)
+            constraints_payload = raw.get("constraints", {})
+        else:
+            shots_payload = raw
+            fallback = args.fallback_asset
+            intent_value = args.intent
+            constraints_payload = {}
+
+        shots = parse_storyboard_payload(shots_payload)
+        result = run_video_mode(
+            shots,
+            fallback_asset_path=fallback,
+            intent=Intent(intent_value),
+            constraints=ShotConstraints(
+                indoor=bool(constraints_payload.get("indoor", not args.outdoor)),
+                max_distance_m=float(
+                    constraints_payload.get("max_distance_m", args.max_distance_m)
+                ),
+                use_drone=bool(constraints_payload.get("use_drone", args.use_drone)),
+                allow_arm_motion=bool(
+                    constraints_payload.get("allow_arm_motion", True)
+                ),
+                allow_lighting_adjustment=bool(
+                    constraints_payload.get("allow_lighting_adjustment", True)
+                ),
+            ),
+        )
+        print_json(result)
         return 0
 
     if args.command == "simulate":
@@ -55,6 +98,48 @@ def build_parser() -> argparse.ArgumentParser:
         "--intent",
         choices=[item.value for item in Intent],
         default=Intent.REPLICATE_COMPOSITION.value,
+    )
+
+    photo = subparsers.add_parser(
+        "photo",
+        help="Photo mode: parse viewpoint, subject, lighting, look, and color.",
+    )
+    photo.add_argument("--asset", required=True, help="Path to a reference photo.")
+    photo.add_argument(
+        "--intent",
+        choices=[item.value for item in Intent],
+        default=Intent.REPLICATE_COMPOSITION.value,
+    )
+
+    video = subparsers.add_parser(
+        "video",
+        help="Video mode: parse a storyboard JSON with moves and durations.",
+    )
+    video.add_argument(
+        "--storyboard",
+        required=True,
+        help="Path to storyboard JSON (list or object with storyboard_shots).",
+    )
+    video.add_argument(
+        "--fallback-asset",
+        default=None,
+        help="Default reference image when a shot omits reference_asset_path.",
+    )
+    video.add_argument(
+        "--intent",
+        choices=[item.value for item in Intent],
+        default=Intent.VLOG_FOLLOW.value,
+    )
+    video.add_argument(
+        "--outdoor",
+        action="store_true",
+        help="Treat storyboard constraints as outdoor when JSON omits indoor.",
+    )
+    video.add_argument("--max-distance-m", type=float, default=4.0)
+    video.add_argument(
+        "--use-drone",
+        action="store_true",
+        help="Allow DJI / drone movements in the storyboard.",
     )
 
     simulate = subparsers.add_parser(

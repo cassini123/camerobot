@@ -23,13 +23,14 @@ def create_shot_plan(request: ShotRequest, analysis: ReferenceAnalysis) -> ShotP
     yaw_deg = _yaw_from_subject_center(analysis.subject["center_norm"][0])
     preview_asset_id = f"{analysis.asset_id}_preview"
     display_events = _display_sequence(preview_asset_id, analysis, request)
+    primary_movement = _primary_camera_movement(request, analysis)
 
     return ShotPlan(
         base={
             "x_m": round(distance_m, 2),
             "y_m": _lateral_offset(analysis),
             "yaw_deg": yaw_deg,
-            "mode": "follow" if analysis.motion["type"] == "follow" else "position",
+            "mode": _base_mode(primary_movement, analysis),
         },
         lift={
             "height_m": float(analysis.camera["height_m"]),
@@ -47,7 +48,7 @@ def create_shot_plan(request: ShotRequest, analysis: ReferenceAnalysis) -> ShotP
             "exposure_mode": "auto_with_face_priority",
             "focus_mode": "subject_tracking",
         },
-        arm=_arm_plan(request, analysis),
+        arm=_arm_plan(request, analysis, primary_movement),
         lights=_light_plan(request, analysis),
         drone=_drone_plan(request, analysis),
         display_events=display_events,
@@ -57,6 +58,8 @@ def create_shot_plan(request: ShotRequest, analysis: ReferenceAnalysis) -> ShotP
             "emergency_stop_required": True,
             "privacy_indicator_required": True,
         },
+        storyboard_shots=request.storyboard_shots,
+        extend=_extend_plan(primary_movement),
     )
 
 
@@ -96,13 +99,56 @@ def _tilt_for_camera_angle(angle: str) -> int:
     }.get(angle, 0)
 
 
-def _arm_plan(request: ShotRequest, analysis: ReferenceAnalysis) -> dict[str, object]:
+def _primary_camera_movement(
+    request: ShotRequest,
+    analysis: ReferenceAnalysis,
+) -> str:
+    if request.storyboard_shots:
+        return request.storyboard_shots[0].camera_movement
+    return str(analysis.motion["type"])
+
+
+def _base_mode(primary_movement: str, analysis: ReferenceAnalysis) -> str:
+    if primary_movement in {"follow", "tracking"}:
+        return "follow"
+    if analysis.motion["type"] == "follow":
+        return "follow"
+    return "position"
+
+
+def _extend_plan(primary_movement: str) -> dict[str, object] | None:
+    """Plus horizontal rail hint; Base ignores this domain."""
+
+    if primary_movement in {"push_in", "pull_out", "dolly"}:
+        return {
+            "mode": "rail",
+            "trajectory": primary_movement,
+            "travel_m": 0.25 if primary_movement == "push_in" else 0.3,
+            "lock_after_move": True,
+        }
+    return {"mode": "standby"}
+
+
+def _arm_plan(
+    request: ShotRequest,
+    analysis: ReferenceAnalysis,
+    primary_movement: str,
+) -> dict[str, object]:
     if not request.constraints.allow_arm_motion:
         return {"mode": "disabled", "reason": "constraint"}
-    if analysis.motion["needs_arm"]:
+    if analysis.motion["needs_arm"] or primary_movement in {
+        "low_to_high_reveal",
+        "crane",
+        "jib",
+    }:
+        trajectory = (
+            primary_movement
+            if primary_movement != "static"
+            else analysis.motion["type"]
+        )
         return {
             "mode": "jib",
-            "trajectory": analysis.motion["type"],
+            "trajectory": trajectory,
             "max_payload_kg": 0.6,
         }
     return {"mode": "standby"}
