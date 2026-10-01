@@ -6,7 +6,6 @@ import { embedClip, getClipSession } from "@/lib/clip-embed";
 import {
   CAPTURE_GO,
   extractFeatures,
-  judgeComposition,
   nextDecision,
   rgbaToRgb,
   scoreMatch,
@@ -19,17 +18,31 @@ import {
   type ShotLabelSet,
 } from "@/lib/shot-labels";
 import {
-  compareSpatial,
   cropLabel,
+  DEFAULT_ESP_CAM_STREAM_URL,
+  ESP32CAM_HFOV_DEG,
   estimateSpatial,
-  formatDistance,
+  formatMetersHint,
   headingLabel,
+  hfovForSource,
+  httpsBlocksHttpStream,
+  judgeGeometry,
+  normalizeStreamUrl,
   SpatialSmoother,
-  type SpatialDelta,
+  WEBCAM_HFOV_DEG,
+  type GeometryGate,
+  type LiveSource,
   type SpatialFix,
   type SpatialOptions,
 } from "@/lib/spatial";
-import { detectYolo, getYoloSession, primarySubject, type YoloDet } from "@/lib/yolo";
+import {
+  boxIou,
+  detectYolo,
+  getYoloSession,
+  primarySubject,
+  SubjectTracker,
+  type YoloDet,
+} from "@/lib/yolo";
 
 const LABEL_ZH: Record<string, string> = {
   person: "人",
@@ -126,40 +139,61 @@ export function FlyvisionWorkbench() {
   const [rightDets, setRightDets] = useState<RichDet[]>([]);
   const [leftLabels, setLeftLabels] = useState<ShotLabelSet | null>(null);
   const [rightLabels, setRightLabels] = useState<ShotLabelSet | null>(null);
-  const [hfovDeg, setHfovDeg] = useState(70);
+  const [webcamHfovDeg, setWebcamHfovDeg] = useState(WEBCAM_HFOV_DEG);
+  const [camHfovDeg, setCamHfovDeg] = useState(ESP32CAM_HFOV_DEG);
   const [personHeightM, setPersonHeightM] = useState(1.7);
   const [rejectPartial, setRejectPartial] = useState(true);
   const [camError, setCamError] = useState<string | null>(null);
-  const [camLive, setCamLive] = useState(false);
+  const [liveKind, setLiveKind] = useState<LiveSource>("idle");
   const [camBusy, setCamBusy] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>("");
+  const [camUrl, setCamUrl] = useState(DEFAULT_ESP_CAM_STREAM_URL);
+  const [pageHttps, setPageHttps] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<{
     similarity: number;
     decision: string;
     compositionOk: boolean;
-    spatial: SpatialDelta | null;
+    geometry: GeometryGate | null;
+    metersHint: string | null;
     leftLabel: string;
     rightLabel: string;
     clip: number | null;
   } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mjpegRef = useRef<HTMLImageElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stableRef = useRef(0);
   const leftPixelsRef = useRef<RgbPixels | null>(null);
   const leftAspectRef = useRef(16 / 9);
   const leftEmbedRef = useRef<number[] | null>(null);
   const liveSmoothRef = useRef(new SpatialSmoother(5));
-  const spatialOpts = useMemo(
+  const trackerRef = useRef(new SubjectTracker());
+  const liveKindRef = useRef(liveKind);
+  liveKindRef.current = liveKind;
+  const live = liveKind !== "idle";
+  const mixedCam = pageHttps && httpsBlocksHttpStream("https:", camUrl);
+  const hfovDeg = hfovForSource(liveKind, webcamHfovDeg, camHfovDeg);
+  const leftSpatialOpts = useMemo(
+    () => ({ hfovDeg: webcamHfovDeg, personHeightM, rejectPartial }),
+    [webcamHfovDeg, personHeightM, rejectPartial],
+  );
+  const liveSpatialOpts = useMemo(
     () => ({ hfovDeg, personHeightM, rejectPartial }),
     [hfovDeg, personHeightM, rejectPartial],
   );
-  const spatialOptsRef = useRef(spatialOpts);
-  spatialOptsRef.current = spatialOpts;
+  const leftSpatialOptsRef = useRef(leftSpatialOpts);
+  leftSpatialOptsRef.current = leftSpatialOpts;
+  const liveSpatialOptsRef = useRef(liveSpatialOpts);
+  liveSpatialOptsRef.current = liveSpatialOpts;
   const clipStateRef = useRef(clipState);
   clipStateRef.current = clipState;
+
+  useEffect(() => {
+    setPageHttps(window.location.protocol === "https:");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -198,7 +232,7 @@ export function FlyvisionWorkbench() {
     leftAspectRef.current = image.naturalWidth / image.naturalHeight;
     const dets = enrich(await detectYolo(image, image.naturalWidth, image.naturalHeight), {
       aspect: leftAspectRef.current,
-      ...spatialOptsRef.current,
+      ...leftSpatialOptsRef.current,
     });
     setLeftDets(dets);
     const primary = primarySubject(dets);
@@ -233,21 +267,26 @@ export function FlyvisionWorkbench() {
         ...det,
         spatial: estimateSpatial(det.label, det.box, {
           aspect: leftAspectRef.current,
-          ...spatialOpts,
+          ...leftSpatialOpts,
         }),
       })),
     );
-  }, [spatialOpts]);
+  }, [leftSpatialOpts]);
 
-  const stopCamera = useCallback(() => {
+  const stopLive = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     const video = videoRef.current;
     if (video) {
       video.srcObject = null;
     }
+    const mjpeg = mjpegRef.current;
+    if (mjpeg) {
+      mjpeg.removeAttribute("src");
+    }
     liveSmoothRef.current.reset();
-    setCamLive(false);
+    trackerRef.current.reset();
+    setLiveKind("idle");
     setRightDets([]);
     setRightLabels(null);
     setCamBusy(false);
@@ -262,6 +301,10 @@ export function FlyvisionWorkbench() {
       setCamBusy(true);
       setCamError(null);
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      const mjpeg = mjpegRef.current;
+      if (mjpeg) {
+        mjpeg.removeAttribute("src");
+      }
       const video = videoRef.current;
       const tried: MediaStreamConstraints[] = deviceId
         ? [
@@ -291,7 +334,7 @@ export function FlyvisionWorkbench() {
       }
       if (!stream) {
         setCamBusy(false);
-        setCamLive(false);
+        setLiveKind("idle");
         setCamError(camErrorText(lastErr));
         return;
       }
@@ -314,11 +357,48 @@ export function FlyvisionWorkbench() {
       } catch {
         setCameras([]);
       }
-      setCamLive(true);
+      trackerRef.current.reset();
+      liveSmoothRef.current.reset();
+      setLiveKind("webcam");
       setCamBusy(false);
     },
     [],
   );
+
+  const startEspCam = useCallback(() => {
+    const url = normalizeStreamUrl(camUrl);
+    setCamUrl(url);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    const video = videoRef.current;
+    if (video) {
+      video.srcObject = null;
+    }
+    const mjpeg = mjpegRef.current;
+    if (!mjpeg) {
+      setCamError("画面还没准备好，再连一次");
+      return;
+    }
+    setCamBusy(true);
+    setCamError(null);
+    trackerRef.current.reset();
+    liveSmoothRef.current.reset();
+    mjpeg.crossOrigin = "anonymous";
+    mjpeg.onload = () => {
+      setCamBusy(false);
+      setLiveKind("esp-cam");
+    };
+    mjpeg.onerror = () => {
+      setCamBusy(false);
+      setLiveKind("idle");
+      setCamError(
+        httpsBlocksHttpStream(window.location.protocol, url)
+          ? "https 页面拦 http 推流。笔记本连上 flyvision-cam 后，用本地 http://localhost:3000/flyvision"
+          : "连不上 CAM 推流。先加入 flyvision-cam，确认 http://192.168.4.1/stream 能开",
+      );
+    };
+    mjpeg.src = url;
+  }, [camUrl]);
 
   useEffect(() => {
     return () => {
@@ -327,24 +407,29 @@ export function FlyvisionWorkbench() {
   }, []);
 
   useEffect(() => {
-    if (!camLive || modelState !== "ready") {
+    if (liveKind === "idle" || modelState !== "ready") {
       return undefined;
     }
-    const video = videoRef.current;
     let timer = 0;
     let stopped = false;
     const tick = async () => {
-      if (stopped || !video?.videoWidth) {
+      const frame = liveFrame(liveKindRef.current, videoRef.current, mjpegRef.current);
+      if (stopped || !frame) {
         timer = window.setTimeout(() => void tick(), 360);
         return;
       }
       try {
-        const aspect = video.videoWidth / video.videoHeight;
-        const dets = enrich(await detectYolo(video, video.videoWidth, video.videoHeight), {
+        const aspect = frame.width / frame.height;
+        const raw = await detectYolo(frame.source, frame.width, frame.height);
+        const tracked = trackerRef.current.push(raw);
+        const rest = tracked
+          ? raw.filter((det) => boxIou(det.box, tracked.box) < 0.45)
+          : raw;
+        const dets = enrich(tracked ? [tracked, ...rest] : rest, {
           aspect,
-          ...spatialOptsRef.current,
+          ...liveSpatialOptsRef.current,
         });
-        const primary = primarySubject(dets);
+        const primary = tracked ? dets[0] : primarySubject(dets);
         const smoothed = liveSmoothRef.current.push(
           primary && "spatial" in primary ? (primary as RichDet).spatial : null,
         );
@@ -369,41 +454,38 @@ export function FlyvisionWorkbench() {
       stopped = true;
       window.clearTimeout(timer);
       liveSmoothRef.current.reset();
+      trackerRef.current.reset();
     };
-  }, [camLive, modelState]);
+  }, [liveKind, modelState]);
 
   useEffect(() => {
     const left = primarySubject(leftDets);
     const right = primarySubject(rightDets);
     const leftPixels = leftPixelsRef.current;
-    const video = videoRef.current;
-    if (!left || !right || !leftPixels || !video?.videoWidth) {
+    const frame = liveFrame(liveKind, videoRef.current, mjpegRef.current);
+    if (!left || !right || !leftPixels || !frame) {
       setVerdict(null);
       stableRef.current = 0;
       return;
     }
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = frame.width;
+    canvas.height = frame.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       return;
     }
-    ctx.drawImage(video, 0, 0);
-    const live = rgbaToRgb(
+    ctx.drawImage(frame.source, 0, 0);
+    const livePixels = rgbaToRgb(
       ctx.getImageData(0, 0, canvas.width, canvas.height).data,
       canvas.width,
       canvas.height,
     );
-    const current = extractFeatures(live, right.box);
+    const current = extractFeatures(livePixels, right.box);
     const reference = extractFeatures(leftPixels, left.box);
     const labels =
       leftLabels && rightLabels ? labelSimilarity(rightLabels, leftLabels) : undefined;
-    const composition = judgeComposition(
-      right.box,
-      [left.box.x + left.box.w / 2, left.box.y + left.box.h / 2],
-      0.12,
-    );
+    const geometry = judgeGeometry(left.box, right.box);
     let cancelled = false;
     const publish = (clipCosine?: number) => {
       if (cancelled) {
@@ -413,22 +495,22 @@ export function FlyvisionWorkbench() {
         clipCosine,
         labelSimilarity: labels,
       });
-      const step = nextDecision(match.sceneMatch, composition.compositionOk, stableRef.current, 4);
+      const step = nextDecision(match.sceneMatch, geometry.geometryOk, stableRef.current, 4);
       stableRef.current = step.nextCount;
-      const leftFix = "spatial" in left ? (left as RichDet).spatial : null;
       const rightFix = "spatial" in right ? (right as RichDet).spatial : null;
       setVerdict({
         similarity: match.similarity,
         decision: step.decision,
-        compositionOk: composition.compositionOk,
-        spatial: leftFix && rightFix ? compareSpatial(leftFix, rightFix) : null,
+        compositionOk: geometry.offsetOk,
+        geometry,
+        metersHint: rightFix ? formatMetersHint(rightFix) : null,
         leftLabel: zh(left.label),
         rightLabel: zh(right.label),
         clip: match.clipSimilarity,
       });
     };
     if (clipStateRef.current === "ready" && leftEmbedRef.current) {
-      void embedClip(live)
+      void embedClip(livePixels)
         .then((liveEmbed) => {
           const clip = scoreMatch(
             { ...current, embedding: liveEmbed },
@@ -444,7 +526,7 @@ export function FlyvisionWorkbench() {
     return () => {
       cancelled = true;
     };
-  }, [leftDets, rightDets, leftLabels, rightLabels]);
+  }, [leftDets, rightDets, leftLabels, rightLabels, liveKind]);
 
   function onUpload(file: File | undefined) {
     if (!file) {
@@ -461,6 +543,10 @@ export function FlyvisionWorkbench() {
   const leftPrimary = primarySubject(leftDets) as RichDet | null;
   const rightPrimary = primarySubject(rightDets) as RichDet | null;
   const go = verdict?.decision === CAPTURE_GO;
+  const statusText = go
+    ? "可以拍"
+    : verdict?.geometry?.summary ??
+      (live ? "继续对齐" : "打开电脑摄像头，或贴 ESP32-CAM 推流地址");
 
   return (
     <div className="apple-app">
@@ -482,8 +568,8 @@ export function FlyvisionWorkbench() {
             ? "YOLOv8n 加载中"
             : modelState === "ready"
               ? clipState === "ready"
-                ? "YOLO · CLIP · 空间"
-                : "YOLOv8n · 空间估计"
+                ? "YOLO · CLIP · 伺服"
+                : "YOLOv8n · 占位伺服"
               : "模型失败"}
         </span>
       </header>
@@ -507,7 +593,7 @@ export function FlyvisionWorkbench() {
             ) : (
               <button className="apple-drop" type="button" onClick={() => fileRef.current?.click()}>
                 <span>上传图片</span>
-                <em>识别主体，并估计距离</em>
+                <em>识别主体，对照构图和占位</em>
               </button>
             )}
           </div>
@@ -533,34 +619,67 @@ export function FlyvisionWorkbench() {
         <section className="apple-pane">
           <h2>实拍</h2>
           <div className="apple-well">
-            <div className={`apple-media${camLive ? "" : " is-idle"}`}>
-              <video ref={videoRef} muted playsInline />
+            <div className={`apple-media${live ? "" : " is-idle"}`}>
+              <video ref={videoRef} muted playsInline hidden={liveKind !== "webcam"} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img ref={mjpegRef} alt="" hidden={liveKind !== "esp-cam"} />
               <Boxes dets={rightDets} primary={rightPrimary} />
             </div>
-            {camLive ? null : (
-              <button
-                className="apple-drop"
-                type="button"
-                disabled={modelState !== "ready" || camBusy}
-                onClick={() => void startCamera(cameraId || undefined)}
-              >
-                <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
-                <em>
-                  {modelState === "loading"
-                    ? "等 YOLOv8n 加载完"
-                    : camError ?? "先看 YOLOv8 识别，再对参考图"}
-                </em>
-              </button>
+            {live ? null : (
+              <div className="apple-idle">
+                <button
+                  className="apple-drop"
+                  type="button"
+                  disabled={modelState !== "ready" || camBusy}
+                  onClick={() => void startCamera(cameraId || undefined)}
+                >
+                  <span>{camBusy && liveKind !== "esp-cam" ? "正在打开…" : "电脑摄像头"}</span>
+                  <em>
+                    {modelState === "loading"
+                      ? "等 YOLOv8n 加载完"
+                      : camError ?? "先看 YOLOv8 识别，再对参考图"}
+                  </em>
+                </button>
+                <form
+                  className="apple-cam-url"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    startEspCam();
+                  }}
+                >
+                  <span>ESP32-CAM 推流</span>
+                  <em>烧录后加入 flyvision-cam，默认 http://192.168.4.1/stream</em>
+                  <div className="apple-cam-url-row">
+                    <input
+                      type="url"
+                      value={camUrl}
+                      spellCheck={false}
+                      aria-label="ESP32-CAM MJPEG 地址"
+                      placeholder={DEFAULT_ESP_CAM_STREAM_URL}
+                      onChange={(event) => setCamUrl(event.target.value)}
+                    />
+                    <button type="submit" disabled={modelState !== "ready" || camBusy}>
+                      {camBusy ? "连接中" : "连接"}
+                    </button>
+                  </div>
+                  {mixedCam ? (
+                    <em>
+                      当前是 https，浏览器会拦 CAM 的 http 流。笔记本连上板子后用本地
+                      localhost 打开工作台。
+                    </em>
+                  ) : null}
+                </form>
+              </div>
             )}
-            {camLive && camError ? <p className="apple-cam-err">{camError}</p> : null}
+            {live && camError ? <p className="apple-cam-err">{camError}</p> : null}
           </div>
           <div className="apple-pills">
-            {camLive ? (
+            {live ? (
               <>
-                <button type="button" onClick={stopCamera}>
+                <button type="button" onClick={stopLive}>
                   关闭
                 </button>
-                {cameras.length > 1 ? (
+                {liveKind === "webcam" && cameras.length > 1 ? (
                   <select
                     className="apple-cam-select"
                     value={cameraId}
@@ -577,6 +696,12 @@ export function FlyvisionWorkbench() {
                     ))}
                   </select>
                 ) : null}
+                {liveKind === "esp-cam" ? (
+                  <span className="apple-pill">
+                    CAM
+                    <em>{camUrl}</em>
+                  </span>
+                ) : null}
               </>
             ) : (
               <button
@@ -592,18 +717,14 @@ export function FlyvisionWorkbench() {
               rightDets.map((det, index) => (
                 <span className="apple-pill" key={`${det.label}-${index}`}>
                   {zh(det.label)}
-                  <em>
-                    {det.spatial
-                      ? `${formatDistance(det.spatial)}${
-                          cropLabel(det.spatial.crop) ? ` · ${cropLabel(det.spatial.crop)}` : ""
-                        }`
-                      : `${(det.score * 100).toFixed(0)}%`}
-                  </em>
+                  <em>{pillCue(det)}</em>
                 </span>
               ))
             ) : (
               <p className="apple-muted">
-                {camLive ? "画面里还没有主体" : camError ?? "打开电脑摄像头看 YOLOv8"}
+                {live
+                  ? "画面里还没有主体"
+                  : camError ?? "电脑摄像头，或 ESP32-CAM 推流"}
               </p>
             )}
           </div>
@@ -611,10 +732,7 @@ export function FlyvisionWorkbench() {
       </div>
 
       <footer className="apple-meter">
-        <div className={`apple-status${go ? " go" : ""}`}>
-          {verdict?.spatial?.summary ??
-            (go ? "可以拍" : camLive ? "继续对齐" : "打开电脑摄像头看 YOLOv8")}
-        </div>
+        <div className={`apple-status${go ? " go" : ""}`}>{statusText}</div>
         <dl>
           <div>
             <dt>参考主体</dt>
@@ -635,21 +753,41 @@ export function FlyvisionWorkbench() {
             </dd>
           </div>
           <div>
-            <dt>构图</dt>
-            <dd>{verdict ? (verdict.compositionOk ? "对齐" : "未对齐") : "—"}</dd>
+            <dt>占位 / 朝向</dt>
+            <dd>
+              {verdict?.geometry
+                ? `${verdict.geometry.summary}${verdict.geometry.geometryOk ? " · 在带内" : ""}`
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt>针孔粗估</dt>
+            <dd>{verdict?.metersHint ?? "—"}</dd>
           </div>
         </dl>
         <div className="apple-cal">
           <label>
-            <span>视场 {hfovDeg}°</span>
+            <span>电脑视场 {webcamHfovDeg}°</span>
             <input
               type="range"
               min={50}
               max={90}
               step={1}
-              value={hfovDeg}
-              aria-label="水平视场"
-              onChange={(event) => setHfovDeg(Number(event.target.value))}
+              value={webcamHfovDeg}
+              aria-label="电脑摄像头水平视场"
+              onChange={(event) => setWebcamHfovDeg(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            <span>CAM 视场 {camHfovDeg}°（OV2640）</span>
+            <input
+              type="range"
+              min={50}
+              max={90}
+              step={1}
+              value={camHfovDeg}
+              aria-label="ESP32-CAM 水平视场"
+              onChange={(event) => setCamHfovDeg(Number(event.target.value))}
             />
           </label>
           <label>
@@ -670,13 +808,44 @@ export function FlyvisionWorkbench() {
               checked={rejectPartial}
               onChange={(event) => setRejectPartial(event.target.checked)}
             />
-            截断框不计距离
+            截断框不计针孔粗估
           </label>
         </div>
+        <p className="apple-muted apple-hint">
+          可以拍 = CLIP 像参考 + 框占画面比例在带内 + 偏左偏右偏上偏下在带内。针孔米数只是旁注，不是
+          RTK，也不开快门。
+        </p>
         {detectError ? <p className="apple-error">{detectError}</p> : null}
       </footer>
     </div>
   );
+}
+
+function liveFrame(
+  kind: LiveSource,
+  video: HTMLVideoElement | null,
+  mjpeg: HTMLImageElement | null,
+): { source: CanvasImageSource; width: number; height: number } | null {
+  if (kind === "webcam") {
+    if (!video?.videoWidth) {
+      return null;
+    }
+    return { source: video, width: video.videoWidth, height: video.videoHeight };
+  }
+  if (kind === "esp-cam") {
+    if (!mjpeg?.naturalWidth) {
+      return null;
+    }
+    return { source: mjpeg, width: mjpeg.naturalWidth, height: mjpeg.naturalHeight };
+  }
+  return null;
+}
+
+function pillCue(det: RichDet): string {
+  const crop = det.spatial ? cropLabel(det.spatial.crop) : "";
+  const heading = det.spatial ? headingLabel(det.spatial.heading) : "";
+  const bits = [crop, heading].filter(Boolean);
+  return bits.length ? bits.join(" · ") : `${(det.score * 100).toFixed(0)}%`;
 }
 
 function spatialLine(det: RichDet | null): string | null {
@@ -688,7 +857,7 @@ function spatialLine(det: RichDet | null): string | null {
     return name;
   }
   const crop = cropLabel(det.spatial.crop);
-  return `${name}  ${formatDistance(det.spatial)}${crop ? `  ${crop}` : ""}  ${headingLabel(det.spatial.heading)}`;
+  return `${name}${crop ? `  ${crop}` : ""}  ${headingLabel(det.spatial.heading)}`;
 }
 
 function Boxes({
@@ -713,7 +882,7 @@ function Boxes({
         >
           <b>
             {zh(det.label)}
-            {det.spatial ? `  ${formatDistance(det.spatial)}` : ""}
+            {det.spatial ? `  ${headingLabel(det.spatial.heading)}` : ""}
           </b>
         </span>
       ))}
@@ -746,11 +915,7 @@ function Pills({
         dets.map((det, index) => (
           <span className="apple-pill" key={`${det.label}-${index}`}>
             {zh(det.label)}
-            <em>
-              {det.spatial
-                ? `${formatDistance(det.spatial)}${cropLabel(det.spatial.crop) ? ` · ${cropLabel(det.spatial.crop)}` : ""}`
-                : `${(det.score * 100).toFixed(0)}%`}
-            </em>
+            <em>{pillCue(det)}</em>
           </span>
         ))
       ) : (

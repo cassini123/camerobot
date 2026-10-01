@@ -1,4 +1,4 @@
-import { boxIou, decodeYoloOutput, nms, primarySubject, type YoloDet } from "@/lib/yolo";
+import { boxIou, decodeYoloOutput, nms, primarySubject, SubjectTracker, type YoloDet } from "@/lib/yolo";
 import { describe, expect, it } from "vitest";
 
 describe("yolo decode / nms", () => {
@@ -56,5 +56,42 @@ describe("yolo types compile", () => {
       box: { x: 0.1, y: 0.1, w: 0.2, h: 0.3 },
     };
     expect(det.label).toBe("person");
+  });
+});
+
+describe("subject tracker", () => {
+  it("keeps the previous person by IoU even if a bigger box appears", () => {
+    const tracker = new SubjectTracker(0.3);
+    const first: YoloDet = {
+      label: "person",
+      score: 0.7,
+      box: { x: 0.2, y: 0.2, w: 0.2, h: 0.4 },
+    };
+    tracker.push([first]);
+    const jitter: YoloDet = {
+      label: "person",
+      score: 0.65,
+      box: { x: 0.22, y: 0.21, w: 0.21, h: 0.41 },
+    };
+    const intruder: YoloDet = {
+      label: "person",
+      score: 0.99,
+      box: { x: 0.7, y: 0.1, w: 0.25, h: 0.7 },
+    };
+    const locked = tracker.push([intruder, jitter]);
+    expect(locked).not.toBeNull();
+    expect(locked!.box.x).toBeLessThan(0.4);
+    expect(boxIou(locked!.box, jitter.box)).toBeGreaterThan(0.5);
+  });
+
+  it("falls back to primarySubject when the lock is lost", () => {
+    const tracker = new SubjectTracker(0.3);
+    tracker.push([
+      { label: "person", score: 0.8, box: { x: 0.1, y: 0.1, w: 0.2, h: 0.4 } },
+    ]);
+    const next = tracker.push([
+      { label: "person", score: 0.9, box: { x: 0.7, y: 0.2, w: 0.2, h: 0.5 } },
+    ]);
+    expect(next?.box.x).toBeGreaterThan(0.5);
   });
 });

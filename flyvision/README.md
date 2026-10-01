@@ -29,7 +29,7 @@ plans robot motion. flyvision consumes those shots and scores a live frame.
 | --- | --- | --- |
 | 1 Camera | `camera.py`, `preprocess.py`, `firmware/esp32cam` | MJPEG / webcam / still; crop-resize 256×256 |
 | 2 Scene | browser `lib/yolo.ts` | **YOLOv8n** in-page (onnxruntime-web). No injected boxes. |
-| 2b Space | `lib/spatial.ts`, `spatial.py`, `depth.py` | Crop-aware pinhole + FOV/height cal; PC can fuse DA-V2 Metric |
+| 2b Space | `lib/spatial.ts`, `spatial.py`, `depth.py` | Occupancy/heading gate (近了/偏右). Pinhole meters = 约/不可靠 hint. CAM FOV ≠ webcam FOV |
 | 3 Shot matching | `match.py`, `lib/clip-embed.ts` | **MobileCLIP2-S0** cosine; HSV is color only |
 | 3b Labels | `shot_labels.py`, `lib/shot-labels.ts` | FilmOps-style scale + composition tags |
 | 4 Composition | `composition.py` | Person center vs `composition.horizontal/vertical` (not embeddings) |
@@ -65,7 +65,9 @@ http://localhost:3000/flyvision
 ```
 
 Upload a photo on the left. The page loads `public/flyvision/yolov8n.onnx` and
-draws real COCO boxes. The right pane is the live camera, same model.
+draws real COCO boxes. The right pane is a laptop webcam **or** an ESP32-CAM
+MJPEG URL (`http://192.168.4.1/stream`). GO is occupancy + heading + CLIP,
+not pinhole meters.
 
 ```bash
 # one still, injected person box (no OpenCV)

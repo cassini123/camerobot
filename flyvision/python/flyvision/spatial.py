@@ -7,6 +7,11 @@ from math import atan, pi, tan
 from typing import Literal
 
 DEFAULT_HFOV_DEG = 70.0
+WEBCAM_HFOV_DEG = 70.0
+ESP32CAM_HFOV_DEG = 66.0
+DEFAULT_ESP_CAM_STREAM_URL = "http://192.168.4.1/stream"
+OCCUPANCY_BAND = 0.18
+OFFSET_BAND = 0.12
 REAL_HEIGHT_M = {
     "person": 1.7,
     "bicycle": 1.05,
@@ -60,6 +65,22 @@ class SpatialDelta:
     closer_m: float
     right_m: float
     up_m: float
+    summary: str
+    meters_hint: str
+
+
+@dataclass(frozen=True)
+class GeometryGate:
+    height_ratio: float
+    area_ratio: float
+    dx: float
+    dy: float
+    range_cue: str
+    heading_cue: str
+    pitch_cue: str
+    occupancy_ok: bool
+    offset_ok: bool
+    geometry_ok: bool
     summary: str
 
 
@@ -142,11 +163,66 @@ def compare_spatial(reference: SpatialFix, live: SpatialFix) -> SpatialDelta:
         right_m=right,
         up_m=up,
         summary=_phrase(closer, right, up, loose),
+        meters_hint=format_meters_hint(live),
     )
+
+
+def judge_geometry(
+    reference: tuple[float, float, float, float],
+    live: tuple[float, float, float, float],
+    occupancy_band: float = OCCUPANCY_BAND,
+    offset_band: float = OFFSET_BAND,
+) -> GeometryGate:
+    """Visual-servoing gate: occupancy + center offset. Meters are not an input."""
+
+    _rx, _ry, rw, rh = reference
+    _lx, _ly, lw, lh = live
+    height_ratio = lh / max(rh, 1e-6)
+    area_ratio = (lw * lh) / max(rw * rh, 1e-6)
+    dx = (_lx + lw / 2.0) - (_rx + rw / 2.0)
+    dy = (_ly + lh / 2.0) - (_ry + rh / 2.0)
+    occupancy_ok = abs(height_ratio - 1.0) <= occupancy_band
+    offset_ok = abs(dx) <= offset_band and abs(dy) <= offset_band
+    range_cue = "远近合适" if occupancy_ok else ("近了" if height_ratio > 1.0 else "远了")
+    heading_cue = "居中" if abs(dx) <= offset_band else ("偏右" if dx > 0 else "偏左")
+    pitch_cue = "高低合适" if abs(dy) <= offset_band else ("偏上" if dy < 0 else "偏下")
+    parts = [range_cue, heading_cue]
+    if pitch_cue != "高低合适":
+        parts.append(pitch_cue)
+    return GeometryGate(
+        height_ratio=height_ratio,
+        area_ratio=area_ratio,
+        dx=dx,
+        dy=dy,
+        range_cue=range_cue,
+        heading_cue=heading_cue,
+        pitch_cue=pitch_cue,
+        occupancy_ok=occupancy_ok,
+        offset_ok=offset_ok,
+        geometry_ok=occupancy_ok and offset_ok,
+        summary=" · ".join(parts),
+    )
+
+
+def hfov_for_source(source: str, webcam_deg: float, cam_deg: float) -> float:
+    return cam_deg if source == "esp-cam" else webcam_deg
+
+
+def normalize_stream_url(raw: str) -> str:
+    trimmed = raw.strip()
+    return trimmed or DEFAULT_ESP_CAM_STREAM_URL
+
+
+def https_blocks_http_stream(page_protocol: str, stream_url: str) -> bool:
+    return page_protocol.rstrip(":") == "https" and stream_url.startswith("http://")
 
 
 def format_meters(value: float) -> str:
     return f"{value:.0f} m" if abs(value) >= 10 else f"{value:.1f} m"
+
+
+def format_meters_hint(fix: SpatialFix) -> str:
+    return f"约 {format_meters(fix.distance_m)} · 不可靠"
 
 
 def _person_size(box: tuple[float, float, float, float], person_height_m: float) -> VisibleSize:
@@ -218,19 +294,19 @@ def _phrase(closer: float, right: float, up: float, loose: bool) -> str:
     dead = 0.4 if loose else 0.22
     parts: list[str] = []
     if abs(closer) < dead:
-        parts.append("距离接近")
+        parts.append("远近合适")
     elif closer > 0:
-        parts.append(f"近了 {format_meters(closer)}")
+        parts.append("近了")
     else:
-        parts.append(f"远了 {format_meters(-closer)}")
+        parts.append("远了")
     if abs(right) < dead:
-        parts.append("左右对齐")
+        parts.append("居中")
     elif right > 0:
-        parts.append(f"偏右 {format_meters(right)}")
+        parts.append("偏右")
     else:
-        parts.append(f"偏左 {format_meters(-right)}")
+        parts.append("偏左")
     if abs(up) >= max(0.28, dead):
-        parts.append(f"偏高 {format_meters(up)}" if up > 0 else f"偏低 {format_meters(-up)}")
+        parts.append("偏上" if up > 0 else "偏下")
     return " · ".join(parts)
 
 

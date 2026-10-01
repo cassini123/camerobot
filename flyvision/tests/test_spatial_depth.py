@@ -12,7 +12,15 @@ if str(PYTHON) not in sys.path:
 
 from flyvision.depth import box_median_depth, fuse_detection, fuse_range  # noqa: E402
 from flyvision.shot_labels import label_shot, tag_reference  # noqa: E402
-from flyvision.spatial import compare_spatial, estimate_spatial  # noqa: E402
+from flyvision.spatial import (  # noqa: E402
+    ESP32CAM_HFOV_DEG,
+    WEBCAM_HFOV_DEG,
+    compare_spatial,
+    estimate_spatial,
+    hfov_for_source,
+    judge_geometry,
+    normalize_stream_url,
+)
 
 
 class SpatialDepthLabelTests(unittest.TestCase):
@@ -91,6 +99,20 @@ class SpatialDepthLabelTests(unittest.TestCase):
     def test_label_shot_center(self) -> None:
         labels = label_shot((0.38, 0.28, 0.24, 0.44))
         self.assertIn("center", labels.tags)
+
+    def test_occupancy_gate_not_meters(self) -> None:
+        gate = judge_geometry((0.4, 0.3, 0.12, 0.22), (0.38, 0.18, 0.16, 0.42))
+        self.assertEqual(gate.range_cue, "近了")
+        self.assertFalse(gate.geometry_ok)
+        self.assertNotRegex(gate.summary, r"\d+(\.\d+)? m")
+        closer = judge_geometry((0.4, 0.25, 0.2, 0.5), (0.4, 0.25, 0.2, 0.5))
+        self.assertTrue(closer.geometry_ok)
+
+    def test_cam_fov_is_not_laptop_fov(self) -> None:
+        self.assertNotEqual(ESP32CAM_HFOV_DEG, WEBCAM_HFOV_DEG)
+        self.assertEqual(hfov_for_source("esp-cam", 70.0, 66.0), 66.0)
+        self.assertEqual(hfov_for_source("webcam", 70.0, 66.0), 70.0)
+        self.assertEqual(normalize_stream_url(""), "http://192.168.4.1/stream")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,40 @@
-/** Crop-aware pinhole ranging from a YOLO box. Rough meters, not RTK. */
+/** Crop-aware pinhole ranging from a YOLO box. Rough meters, never the GO gate. */
 
 import type { BBox } from "./flyvision-match";
 
-/** Laptop webcam / OV2640-class horizontal field of view. */
-export const DEFAULT_HFOV_DEG = 70;
+/** Laptop webcam horizontal field of view. A guess until the user calibrates. */
+export const WEBCAM_HFOV_DEG = 70;
+/** AI-Thinker OV2640 stock lens, typical HFOV. Calibrate after flash; do not reuse 70°. */
+export const ESP32CAM_HFOV_DEG = 66;
+/** @deprecated Use WEBCAM_HFOV_DEG or ESP32CAM_HFOV_DEG. Kept so old calls still compile. */
+export const DEFAULT_HFOV_DEG = WEBCAM_HFOV_DEG;
+
+export const DEFAULT_ESP_CAM_STREAM_URL = "http://192.168.4.1/stream";
+
+/** |h_live / h_ref − 1| band for visual-servoing occupancy (not meters). */
+export const OCCUPANCY_BAND = 0.18;
+/** Normalized box-center offset band vs the planned shot. */
+export const OFFSET_BAND = 0.12;
+
+export type LiveSource = "idle" | "webcam" | "esp-cam";
+
+export type RangeCue = "近了" | "远了" | "远近合适";
+export type HeadingCue = "偏左" | "偏右" | "居中";
+export type PitchCue = "偏上" | "偏下" | "高低合适";
+
+export type GeometryGate = {
+  heightRatio: number;
+  areaRatio: number;
+  dx: number;
+  dy: number;
+  rangeCue: RangeCue;
+  headingCue: HeadingCue;
+  pitchCue: PitchCue;
+  occupancyOk: boolean;
+  offsetOk: boolean;
+  geometryOk: boolean;
+  summary: string;
+};
 
 export type BodyCrop = "full" | "knee" | "waist" | "bust" | "head" | "object";
 
@@ -85,6 +116,7 @@ export type SpatialDelta = {
   rightM: number;
   upM: number;
   summary: string;
+  metersHint: string;
 };
 
 export type VisibleSize = {
@@ -113,7 +145,7 @@ export function estimateSpatial(
       ? { aspect: aspectOrOptions, hfovDeg: hfovDegArg }
       : aspectOrOptions;
   const aspect = options.aspect ?? 16 / 9;
-  const hfovDeg = options.hfovDeg ?? DEFAULT_HFOV_DEG;
+  const hfovDeg = options.hfovDeg ?? WEBCAM_HFOV_DEG;
   const visible = inferVisibleSize(label, box, options.personHeightM);
   if (!visible || box.h < 0.02 || box.w < 0.01) {
     return null;
@@ -184,12 +216,80 @@ export function compareSpatial(reference: SpatialFix, live: SpatialFix): Spatial
     reference.crop !== live.crop
       ? `景别不同（参考${cropLabel(reference.crop)} / 实拍${cropLabel(live.crop)}）`
       : "";
+  const summary = [phraseDelta(closerM, rightM, upM, loose), cropNote].filter(Boolean).join(" · ");
   return {
     closerM,
     rightM,
     upM,
-    summary: [phraseDelta(closerM, rightM, upM, loose), cropNote].filter(Boolean).join(" · "),
+    summary,
+    metersHint: formatMetersHint(live),
   };
+}
+
+/**
+ * 3–4 Hz visual-servoing gate. Occupancy (box height / area vs the planned shot)
+ * and box-center offset. Absolute meters are not an input.
+ */
+export function judgeGeometry(
+  reference: BBox,
+  live: BBox,
+  occupancyBand = OCCUPANCY_BAND,
+  offsetBand = OFFSET_BAND,
+): GeometryGate {
+  const refH = Math.max(1e-6, reference.h);
+  const refArea = Math.max(1e-6, reference.w * reference.h);
+  const heightRatio = live.h / refH;
+  const areaRatio = (live.w * live.h) / refArea;
+  const liveCx = live.x + live.w / 2;
+  const liveCy = live.y + live.h / 2;
+  const refCx = reference.x + reference.w / 2;
+  const refCy = reference.y + reference.h / 2;
+  const dx = liveCx - refCx;
+  const dy = liveCy - refCy;
+  const occupancyOk = Math.abs(heightRatio - 1) <= occupancyBand;
+  const offsetOk = Math.abs(dx) <= offsetBand && Math.abs(dy) <= offsetBand;
+  const rangeCue: RangeCue = occupancyOk ? "远近合适" : heightRatio > 1 ? "近了" : "远了";
+  const headingCue: HeadingCue = Math.abs(dx) <= offsetBand ? "居中" : dx > 0 ? "偏右" : "偏左";
+  const pitchCue: PitchCue = Math.abs(dy) <= offsetBand ? "高低合适" : dy < 0 ? "偏上" : "偏下";
+  const parts = [rangeCue, headingCue];
+  if (pitchCue !== "高低合适") {
+    parts.push(pitchCue);
+  }
+  return {
+    heightRatio,
+    areaRatio,
+    dx,
+    dy,
+    rangeCue,
+    headingCue,
+    pitchCue,
+    occupancyOk,
+    offsetOk,
+    geometryOk: occupancyOk && offsetOk,
+    summary: parts.join(" · "),
+  };
+}
+
+export function hfovForSource(
+  source: LiveSource,
+  webcamDeg: number,
+  camDeg: number,
+): number {
+  return source === "esp-cam" ? camDeg : webcamDeg;
+}
+
+export function normalizeStreamUrl(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed || DEFAULT_ESP_CAM_STREAM_URL;
+}
+
+export function httpsBlocksHttpStream(pageProtocol: string, streamUrl: string): boolean {
+  try {
+    const parsed = new URL(streamUrl);
+    return pageProtocol === "https:" && parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 export function formatMeters(value: number): string {
@@ -201,8 +301,12 @@ export function formatMeters(value: number): string {
 }
 
 export function formatDistance(fix: SpatialFix): string {
-  const text = formatMeters(fix.distanceM);
-  return fix.confidence === "high" ? text : `约 ${text}`;
+  return `约 ${formatMeters(fix.distanceM)}`;
+}
+
+/** Secondary readout only. Never the CAPTURE_GO / CONTINUE_FOLLOW authority. */
+export function formatMetersHint(fix: SpatialFix): string {
+  return `约 ${formatMeters(fix.distanceM)} · 不可靠`;
 }
 
 export function headingLabel(heading: SpatialFix["heading"]): string {
@@ -363,21 +467,21 @@ function phraseDelta(
   const dead = loose ? 0.4 : 0.22;
   const parts: string[] = [];
   if (Math.abs(closerM) < dead) {
-    parts.push("距离接近");
+    parts.push("远近合适");
   } else if (closerM > 0) {
-    parts.push(`近了 ${formatMeters(closerM)}`);
+    parts.push("近了");
   } else {
-    parts.push(`远了 ${formatMeters(-closerM)}`);
+    parts.push("远了");
   }
   if (Math.abs(rightM) < dead) {
-    parts.push("左右对齐");
+    parts.push("居中");
   } else if (rightM > 0) {
-    parts.push(`偏右 ${formatMeters(rightM)}`);
+    parts.push("偏右");
   } else {
-    parts.push(`偏左 ${formatMeters(-rightM)}`);
+    parts.push("偏左");
   }
   if (Math.abs(upM) >= Math.max(0.28, dead)) {
-    parts.push(upM > 0 ? `偏高 ${formatMeters(upM)}` : `偏低 ${formatMeters(-upM)}`);
+    parts.push(upM > 0 ? "偏上" : "偏下");
   }
   return parts.join(" · ");
 }
