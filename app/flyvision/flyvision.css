@@ -215,7 +215,9 @@
 
 .apple-hint {
   width: 100%;
+  flex-basis: 100%;
   font-size: 12px;
+  margin: 4px 0 0;
 }
 
 .apple-cam-select {
