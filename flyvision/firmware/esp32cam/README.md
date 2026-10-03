@@ -7,12 +7,13 @@ Person detection, shot matching, and Capture GO run on a PC / browser.
 
 木机动力不动。CAM 只出图。
 
-1. Arduino IDE → 开发板 **AI Thinker ESP32-CAM**，**PSRAM: Enabled**。
-   摘要末尾若是 `Disabled`，`/capture` 会 HTTP 500（init 成功但拿不到 JPEG）。
-2. 打开本目录 `esp32cam.ino`（文件夹名必须是 `esp32cam`）。
-3. USB-UART 接 U0R/U0T，GPIO0 接地复位后烧录。
+1. Arduino IDE → 开发板 **AI Thinker ESP32-CAM**。2.0.17 没有 PSRAM 菜单，不要找。
+   不要点 IDE「上传」。CAM-MB 用终端 `write_flash --before no_reset`。
+2. 打开本目录 `esp32cam.ino`（文件夹名必须是 `esp32cam`）。确认 `FRAMESIZE_QVGA`。
+3. 验证 → 导出已编译的二进制 → 按住 IO0，点 RST，等 3 秒，再 `write_flash` 到 `0x10000`。
 4. 默认 AP：SSID `flyvision-cam`，密码 `flyvision`，地址 `192.168.4.1`。
-5. 笔记本加入该 Wi-Fi，浏览器打开 `http://192.168.4.1/stream` 应看到 VGA MJPEG。
+5. 笔记本加入该 Wi-Fi（会没外网）。**Safari** 先开 `http://192.168.4.1/status`，
+   再开 `/capture`。`/capture` 全白 = 摄像头没出图，不是网址错了。不要用 Chrome+VPN。
 6. 打开工作台 **本地 http** `http://localhost:3000/flyvision`（https / Vercel 会拦
    CAM 的 http 流；加入 AP 后也没有外网）。
 7. 实拍栏选 **ESP32-CAM 推流**，地址默认 `http://192.168.4.1/stream`，点连接。
@@ -39,9 +40,9 @@ under motor load with a multimeter.
 
 ## Arduino IDE
 
-1. Boards manager: **esp32 by Espressif** (3.x is fine).
+1. Boards manager: **esp32 by Espressif 2.0.17** (not 3.x on Arduino 1.8.19).
 2. Board: **AI Thinker ESP32-CAM**.
-3. PSRAM: enabled.
+3. No PSRAM menu on this board package. Firmware tries DRAM first.
 4. Open `esp32cam.ino` (folder name must stay `esp32cam`).
 5. Default Wi-Fi is a soft AP:
    - SSID `flyvision-cam`
@@ -60,8 +61,8 @@ HTTP:
 | `/capture` | One JPEG |
 | `/status` | Heap, framesize, IP |
 
-Default framesize is VGA (640×480). Switch `FLYVISION_FRAMESIZE` to
-`FRAMESIZE_QVGA` if Wi-Fi is dropping frames.
+Default framesize is QVGA (320×240). VGA + 20 MHz XCLK often inits then
+overflows VSYNC: `/capture` is a white Safari page / HTTP 500.
 
 CORS is `*` so a local http workbench can draw frames into canvas.
 
