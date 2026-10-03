@@ -59,7 +59,8 @@ static camera_config_t make_camera_config() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  // 10 MHz is slower but much more stable on CAM-MB 5V USB than 20 MHz.
+  config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size = FLYVISION_FRAMESIZE;
   config.jpeg_quality = FLYVISION_JPEG_QUALITY;
@@ -69,27 +70,68 @@ static camera_config_t make_camera_config() {
   return config;
 }
 
-static bool start_camera() {
+static camera_fb_t *grab_frame() {
+  for (int i = 0; i < 8; ++i) {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb != nullptr) {
+      return fb;
+    }
+    delay(40);
+  }
+  return nullptr;
+}
+
+static bool probe_frame() {
+  camera_fb_t *fb = grab_frame();
+  if (fb == nullptr) {
+    Serial.println("camera probe: no jpeg");
+    return false;
+  }
+  Serial.printf("camera probe: jpeg %u bytes\n", (unsigned)fb->len);
+  esp_camera_fb_return(fb);
+  return true;
+}
+
+static bool init_camera(framesize_t size, bool use_psram) {
   camera_config_t config = make_camera_config();
-  if (psramFound()) {
+  config.frame_size = size;
+  if (use_psram && psramFound()) {
     config.fb_count = 2;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    config.grab_mode = CAMERA_GRAB_LATEST;
   } else {
-    config.frame_size = FRAMESIZE_QVGA;
     config.fb_count = 1;
     config.fb_location = CAMERA_FB_IN_DRAM;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   }
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("camera init failed: 0x%x\n", err);
+    Serial.printf("camera init failed: 0x%x size=%u psram=%d\n", err, (unsigned)size, use_psram);
     return false;
   }
   sensor_t *sensor = esp_camera_sensor_get();
   if (sensor != nullptr) {
-    sensor->set_framesize(sensor, config.frame_size);
+    sensor->set_framesize(sensor, size);
     sensor->set_vflip(sensor, 0);
     sensor->set_hmirror(sensor, 0);
   }
-  return true;
+  delay(200);
+  return probe_frame();
+}
+
+static bool start_camera() {
+  Serial.printf("psramFound=%d\n", psramFound() ? 1 : 0);
+  if (init_camera(FLYVISION_FRAMESIZE, true)) {
+    return true;
+  }
+  esp_camera_deinit();
+  delay(150);
+  Serial.println("retry camera QVGA DRAM");
+  if (init_camera(FRAMESIZE_QVGA, false)) {
+    return true;
+  }
+  esp_camera_deinit();
+  return false;
 }
 
 static void start_wifi() {
@@ -166,8 +208,9 @@ static esp_err_t status_handler(httpd_req_t *req) {
 }
 
 static esp_err_t capture_handler(httpd_req_t *req) {
-  camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t *fb = grab_frame();
   if (!fb) {
+    Serial.println("capture: fb grab failed");
     httpd_resp_send_500(req);
     return ESP_FAIL;
   }
@@ -187,7 +230,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   }
   char part[64];
   while (true) {
-    camera_fb_t *fb = esp_camera_fb_get();
+    camera_fb_t *fb = grab_frame();
     if (!fb) {
       Serial.println("fb grab failed");
       return ESP_FAIL;
@@ -245,8 +288,7 @@ void setup() {
   Serial.println();
   Serial.println("flyvision CAM collector");
   if (!start_camera()) {
-    Serial.println("halt: camera failed (check 5V supply and OV2640 seating)");
-    return;
+    Serial.println("camera failed; WiFi AP still starting (check 5V and OV2640 seating)");
   }
   start_wifi();
   start_http();

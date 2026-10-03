@@ -25,9 +25,10 @@
 #define FLYVISION_STA_PASS "your-password"
 #endif
 
-// FRAMESIZE_VGA (640x480) for live view; FRAMESIZE_QVGA for matching bandwidth.
+// QVGA first: VGA + PSRAM-Disabled often inits then fails every grab (HTTP 500).
+// Switch back to FRAMESIZE_VGA after /capture shows a JPEG.
 #ifndef FLYVISION_FRAMESIZE
-#define FLYVISION_FRAMESIZE FRAMESIZE_VGA
+#define FLYVISION_FRAMESIZE FRAMESIZE_QVGA
 #endif
 
 #ifndef FLYVISION_JPEG_QUALITY

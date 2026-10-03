@@ -7,7 +7,8 @@ Person detection, shot matching, and Capture GO run on a PC / browser.
 
 木机动力不动。CAM 只出图。
 
-1. Arduino IDE → 开发板 **AI Thinker ESP32-CAM**，PSRAM 打开。
+1. Arduino IDE → 开发板 **AI Thinker ESP32-CAM**，**PSRAM: Enabled**。
+   摘要末尾若是 `Disabled`，`/capture` 会 HTTP 500（init 成功但拿不到 JPEG）。
 2. 打开本目录 `esp32cam.ino`（文件夹名必须是 `esp32cam`）。
 3. USB-UART 接 U0R/U0T，GPIO0 接地复位后烧录。
 4. 默认 AP：SSID `flyvision-cam`，密码 `flyvision`，地址 `192.168.4.1`。
