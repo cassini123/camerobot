@@ -12,8 +12,8 @@ Person detection, shot matching, and Capture GO run on a PC / browser.
 2. 打开本目录 `esp32cam.ino`（文件夹名必须是 `esp32cam`）。确认 `FRAMESIZE_QVGA`。
 3. 验证 → 导出已编译的二进制 → 按住 IO0，点 RST，等 3 秒，再 `write_flash` 到 `0x10000`。
 4. 默认 AP：SSID `flyvision-cam`，密码 `flyvision`，地址 `192.168.4.1`。
-5. 笔记本加入该 Wi-Fi（会没外网）。**Safari** 先开 `http://192.168.4.1/status`，
-   再开 `/capture`。`/capture` 全白 = 摄像头没出图，不是网址错了。不要用 Chrome+VPN。
+5. 笔记本加入该 Wi-Fi（会没外网）。**Safari 不要打开 `/` 或 `/stream`**（MJPEG 会整页发白）。
+   先开 `http://192.168.4.1/status`，再开 `/capture`。不要用 Chrome+VPN。
 6. 打开工作台 **本地 http** `http://localhost:3000/flyvision`（https / Vercel 会拦
    CAM 的 http 流；加入 AP 后也没有外网）。
 7. 实拍栏选 **ESP32-CAM 推流**，地址默认 `http://192.168.4.1/stream`，点连接。

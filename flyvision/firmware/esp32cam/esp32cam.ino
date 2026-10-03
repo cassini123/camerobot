@@ -24,19 +24,26 @@
 #include "camera_pins.h"
 #include "config.h"
 
-#define FLYVISION_FW "qvga-dram-3"
+#define FLYVISION_FW "qvga-dram-4"
 
 static const char STREAM_CONTENT_TYPE[] = "multipart/x-mixed-replace;boundary=frame";
 static const char STREAM_BOUNDARY[] = "\r\n--frame\r\n";
 static const char STREAM_PART[] = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
+// Safari cannot show MJPEG in <img src="/stream"> — that looks like a blank page.
+// Serve a still JPEG and text links instead.
 static const char INDEX_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>flyvision CAM</title></head>
-<body style="margin:0;background:#111;color:#eee;font:14px sans-serif">
-  <p style="padding:8px 12px">flyvision collector — <a href="/capture" style="color:#9cf">/capture</a> · <a href="/status" style="color:#9cf">/status</a></p>
-  <img src="/stream" style="width:100%;max-width:640px"/>
+<body style="margin:0;background:#111;color:#eee;font:16px sans-serif;padding:24px">
+  <h1 style="font-size:20px">flyvision CAM</h1>
+  <p>不要用 Safari 打开 /stream，会整页发白。先看下面这张静图。</p>
+  <p>
+    <a href="/capture" style="color:#9cf">/capture</a> ·
+    <a href="/status" style="color:#9cf">/status</a>
+  </p>
+  <img src="/capture" alt="capture" style="width:100%;max-width:640px;background:#333"/>
 </body>
 </html>
 )HTML";
@@ -366,11 +373,12 @@ void setup() {
   Serial.println();
   Serial.println("flyvision CAM collector");
   Serial.printf("fw=%s default=%s\n", FLYVISION_FW, "QVGA");
-  if (!start_camera()) {
-    Serial.println("camera failed; WiFi AP still starting (check 5V and OV2640 seating)");
-  }
+  // AP first so Safari /status works even if the sensor hangs on init.
   start_wifi();
   start_http();
+  if (!start_camera()) {
+    Serial.println("camera failed; AP already up — open /status then /capture");
+  }
 }
 
 void loop() {
