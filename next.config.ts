@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: "/flyvision/cam/:path*",
+        destination: "http://192.168.4.1/:path*",
+      },
+    ];
+  },
   transpilePackages: [
     "three",
     "mediabunny",

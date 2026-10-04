@@ -242,6 +242,31 @@
   border-color: #0071e3;
 }
 
+.apple-cue {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 3;
+  max-width: calc(100% - 20px);
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.apple-cue.go {
+  background: rgba(0, 113, 227, 0.88);
+}
+
+.apple-cue.is-wait {
+  font-weight: 500;
+  font-size: 13px;
+  color: #eee;
+}
+
 .apple-box b {
   position: absolute;
   left: 0;

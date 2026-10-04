@@ -10,6 +10,9 @@ export const ESP32CAM_HFOV_DEG = 66;
 export const DEFAULT_HFOV_DEG = WEBCAM_HFOV_DEG;
 
 export const DEFAULT_ESP_CAM_STREAM_URL = "http://192.168.4.1/stream";
+export const DEFAULT_ESP_CAM_CAPTURE_URL = "http://192.168.4.1/capture";
+/** Same-origin stills via next.dev rewrite. Avoids Safari MJPEG and canvas taint. */
+export const LOCAL_CAM_CAPTURE_URL = "/flyvision/cam/capture";
 
 /** |h_live / h_ref − 1| band for visual-servoing occupancy (not meters). */
 export const OCCUPANCY_BAND = 0.18;
@@ -281,6 +284,12 @@ export function hfovForSource(
 export function normalizeStreamUrl(raw: string): string {
   const trimmed = raw.trim();
   return trimmed || DEFAULT_ESP_CAM_STREAM_URL;
+}
+
+/** Safari / YOLO need a still JPEG. Map .../stream to .../capture. */
+export function camStillUrl(raw: string): string {
+  const trimmed = raw.trim() || LOCAL_CAM_CAPTURE_URL;
+  return trimmed.replace(/\/stream\/?(?=[?#]|$)/i, "/capture");
 }
 
 export function httpsBlocksHttpStream(pageProtocol: string, streamUrl: string): boolean {

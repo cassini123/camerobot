@@ -19,15 +19,16 @@ import {
 } from "@/lib/shot-labels";
 import {
   cropLabel,
-  DEFAULT_ESP_CAM_STREAM_URL,
+  camStillUrl,
+  DEFAULT_ESP_CAM_CAPTURE_URL,
   ESP32CAM_HFOV_DEG,
+  LOCAL_CAM_CAPTURE_URL,
   estimateSpatial,
   formatMetersHint,
   headingLabel,
   hfovForSource,
   httpsBlocksHttpStream,
   judgeGeometry,
-  normalizeStreamUrl,
   SpatialSmoother,
   WEBCAM_HFOV_DEG,
   type GeometryGate,
@@ -114,6 +115,33 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+async function pullCamStill(url: string): Promise<string> {
+  const still = camStillUrl(url);
+  const sep = still.includes("?") ? "&" : "?";
+  const paths = still.startsWith("/")
+    ? [`${still}${sep}t=${Date.now()}`, `${DEFAULT_ESP_CAM_CAPTURE_URL}?t=${Date.now()}`]
+    : [`${still}${sep}t=${Date.now()}`];
+  let lastErr: unknown = null;
+  for (const path of paths) {
+    try {
+      const res = await fetch(path, { cache: "no-store", mode: path.startsWith("/") ? "same-origin" : "cors" });
+      if (!res.ok) {
+        lastErr = new Error(`CAM HTTP ${res.status}`);
+        continue;
+      }
+      const blob = await res.blob();
+      if (blob.size < 400) {
+        lastErr = new Error("CAM 没出 JPEG");
+        continue;
+      }
+      return URL.createObjectURL(blob);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("连不上 CAM");
+}
+
 function camErrorText(err: unknown): string {
   const name = err instanceof DOMException ? err.name : "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -148,7 +176,7 @@ export function FlyvisionWorkbench() {
   const [camBusy, setCamBusy] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>("");
-  const [camUrl, setCamUrl] = useState(DEFAULT_ESP_CAM_STREAM_URL);
+  const [camUrl, setCamUrl] = useState(LOCAL_CAM_CAPTURE_URL);
   const [pageHttps, setPageHttps] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<{
@@ -172,6 +200,8 @@ export function FlyvisionWorkbench() {
   const liveSmoothRef = useRef(new SpatialSmoother(5));
   const trackerRef = useRef(new SubjectTracker());
   const liveKindRef = useRef(liveKind);
+  const camPollRef = useRef(false);
+  const camBlobRef = useRef<string | null>(null);
   liveKindRef.current = liveKind;
   const live = liveKind !== "idle";
   const mixedCam = pageHttps && httpsBlocksHttpStream("https:", camUrl);
@@ -274,6 +304,11 @@ export function FlyvisionWorkbench() {
   }, [leftSpatialOpts]);
 
   const stopLive = useCallback(() => {
+    camPollRef.current = false;
+    if (camBlobRef.current) {
+      URL.revokeObjectURL(camBlobRef.current);
+      camBlobRef.current = null;
+    }
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     const video = videoRef.current;
@@ -300,6 +335,7 @@ export function FlyvisionWorkbench() {
       }
       setCamBusy(true);
       setCamError(null);
+      camPollRef.current = false;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       const mjpeg = mjpegRef.current;
       if (mjpeg) {
@@ -366,7 +402,7 @@ export function FlyvisionWorkbench() {
   );
 
   const startEspCam = useCallback(() => {
-    const url = normalizeStreamUrl(camUrl);
+    const url = camStillUrl(camUrl);
     setCamUrl(url);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -379,26 +415,59 @@ export function FlyvisionWorkbench() {
       setCamError("画面还没准备好，再连一次");
       return;
     }
+    camPollRef.current = true;
     setCamBusy(true);
     setCamError(null);
     trackerRef.current.reset();
     liveSmoothRef.current.reset();
-    mjpeg.crossOrigin = "anonymous";
-    mjpeg.onload = () => {
-      setCamBusy(false);
-      setLiveKind("esp-cam");
+    if (url.startsWith("/")) {
+      mjpeg.removeAttribute("crossorigin");
+    } else {
+      mjpeg.crossOrigin = "anonymous";
+    }
+    const loop = async () => {
+      while (camPollRef.current) {
+        try {
+          const obj = await pullCamStill(url);
+          const img = mjpegRef.current;
+          if (!img || !camPollRef.current) {
+            URL.revokeObjectURL(obj);
+            break;
+          }
+          const prev = camBlobRef.current;
+          camBlobRef.current = obj;
+          img.onload = () => {
+            if (prev) {
+              URL.revokeObjectURL(prev);
+            }
+            setCamBusy(false);
+            setLiveKind("esp-cam");
+            setCamError(null);
+          };
+          img.src = obj;
+        } catch (err) {
+          if (!camPollRef.current) {
+            break;
+          }
+          if (liveKindRef.current !== "esp-cam") {
+            setCamBusy(false);
+            setLiveKind("idle");
+            setCamError(
+              pageHttps && !url.startsWith("/")
+                ? "https 页面拦 http CAM。笔记本连上 flyvision-cam 后，用本地 http://localhost:3000/flyvision"
+                : err instanceof Error
+                  ? err.message
+                  : "连不上 CAM。确认已加入 flyvision-cam，并用本地 localhost 打开工作台",
+            );
+            camPollRef.current = false;
+            break;
+          }
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 480));
+      }
     };
-    mjpeg.onerror = () => {
-      setCamBusy(false);
-      setLiveKind("idle");
-      setCamError(
-        httpsBlocksHttpStream(window.location.protocol, url)
-          ? "https 页面拦 http 推流。笔记本连上 flyvision-cam 后，用本地 http://localhost:3000/flyvision"
-          : "连不上 CAM 推流。先加入 flyvision-cam，确认 http://192.168.4.1/stream 能开",
-      );
-    };
-    mjpeg.src = url;
-  }, [camUrl]);
+    void loop();
+  }, [camUrl, pageHttps]);
 
   useEffect(() => {
     return () => {
@@ -528,6 +597,34 @@ export function FlyvisionWorkbench() {
     };
   }, [leftDets, rightDets, leftLabels, rightLabels, liveKind]);
 
+  function snapLiveAsReference() {
+    const frame = liveFrame(liveKind, videoRef.current, mjpegRef.current);
+    if (!frame) {
+      setDetectError("还没有实拍画面，先连接 CAM");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = frame.width;
+    canvas.height = frame.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    ctx.drawImage(frame.source, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        return;
+      }
+      if (uploadUrl) {
+        URL.revokeObjectURL(uploadUrl);
+      }
+      setUploadUrl(URL.createObjectURL(blob));
+      setLeftDets([]);
+      stableRef.current = 0;
+      setDetectError(null);
+    }, "image/jpeg", 0.92);
+  }
+
   function onUpload(file: File | undefined) {
     if (!file) {
       return;
@@ -623,6 +720,11 @@ export function FlyvisionWorkbench() {
               <video ref={videoRef} muted playsInline hidden={liveKind !== "webcam"} />
               <img ref={mjpegRef} alt="" hidden={liveKind !== "esp-cam"} />
               <Boxes dets={rightDets} primary={rightPrimary} />
+              {verdict?.geometry ? (
+                <div className={`apple-cue${go ? " go" : ""}`}>{verdict.geometry.summary}</div>
+              ) : live && modelState === "ready" && !rightDets.length ? (
+                <div className="apple-cue is-wait">YOLO 在看…把人放进画面</div>
+              ) : null}
             </div>
             {live ? null : (
               <div className="apple-idle">
@@ -646,15 +748,15 @@ export function FlyvisionWorkbench() {
                     startEspCam();
                   }}
                 >
-                  <span>ESP32-CAM 推流</span>
-                  <em>烧录后加入 flyvision-cam，默认 http://192.168.4.1/stream</em>
+                  <span>ESP32-CAM</span>
+                  <em>连上 flyvision-cam 后点连接。本地工作台走 /capture，YOLO 在这一页画框比对。</em>
                   <div className="apple-cam-url-row">
                     <input
                       type="url"
                       value={camUrl}
                       spellCheck={false}
                       aria-label="ESP32-CAM MJPEG 地址"
-                      placeholder={DEFAULT_ESP_CAM_STREAM_URL}
+                      placeholder={LOCAL_CAM_CAPTURE_URL}
                       onChange={(event) => setCamUrl(event.target.value)}
                     />
                     <button type="submit" disabled={modelState !== "ready" || camBusy}>
@@ -701,6 +803,9 @@ export function FlyvisionWorkbench() {
                     <em>{camUrl}</em>
                   </span>
                 ) : null}
+                <button type="button" disabled={!live} onClick={snapLiveAsReference}>
+                  把这帧当参考
+                </button>
               </>
             ) : (
               <button

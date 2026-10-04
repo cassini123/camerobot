@@ -1,6 +1,9 @@
 import {
   compareSpatial,
+  DEFAULT_ESP_CAM_CAPTURE_URL,
   DEFAULT_ESP_CAM_STREAM_URL,
+  LOCAL_CAM_CAPTURE_URL,
+  camStillUrl,
   ESP32CAM_HFOV_DEG,
   estimateSpatial,
   formatDistance,
@@ -228,5 +231,13 @@ describe("CAM live source vs webcam FOV", () => {
     expect(httpsBlocksHttpStream("https:", DEFAULT_ESP_CAM_STREAM_URL)).toBe(true);
     expect(httpsBlocksHttpStream("http:", DEFAULT_ESP_CAM_STREAM_URL)).toBe(false);
     expect(hfovForSource("webcam", WEBCAM_HFOV_DEG, ESP32CAM_HFOV_DEG)).toBe(WEBCAM_HFOV_DEG);
+  });
+
+  it("turns a stream URL into a still JPEG for YOLO", () => {
+    expect(camStillUrl(DEFAULT_ESP_CAM_STREAM_URL)).toBe(DEFAULT_ESP_CAM_CAPTURE_URL);
+    expect(camStillUrl("/flyvision/cam/stream")).toBe("/flyvision/cam/capture");
+    expect(camStillUrl(DEFAULT_ESP_CAM_CAPTURE_URL)).toBe(DEFAULT_ESP_CAM_CAPTURE_URL);
+    expect(camStillUrl("")).toBe(LOCAL_CAM_CAPTURE_URL);
+    expect(LOCAL_CAM_CAPTURE_URL).toBe("/flyvision/cam/capture");
   });
 });
