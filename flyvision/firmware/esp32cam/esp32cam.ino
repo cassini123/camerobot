@@ -24,7 +24,7 @@
 #include "camera_pins.h"
 #include "config.h"
 
-#define FLYVISION_FW "qvga-dram-4"
+#define FLYVISION_FW "qvga-dram-5"
 
 static const char STREAM_CONTENT_TYPE[] = "multipart/x-mixed-replace;boundary=frame";
 static const char STREAM_BOUNDARY[] = "\r\n--frame\r\n";
@@ -100,17 +100,9 @@ static camera_fb_t *grab_frame() {
   return nullptr;
 }
 
-static void discard_warmup_frames() {
-  for (int i = 0; i < 3; ++i) {
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (fb != nullptr) {
-      esp_camera_fb_return(fb);
-    }
-    delay(60);
-  }
-}
-
 static bool probe_frame() {
+  Serial.println("camera grab...");
+  Serial.flush();
   camera_fb_t *fb = grab_frame();
   if (fb == nullptr) {
     Serial.println("camera probe: no jpeg");
@@ -123,10 +115,12 @@ static bool probe_frame() {
 
 static bool init_camera(framesize_t size, bool use_psram, int xclk_hz) {
   camera_config_t config = make_camera_config(size, use_psram, xclk_hz);
+  Serial.printf("camera init size=%u psram=%d xclk=%d\n", (unsigned)size, use_psram, xclk_hz);
+  Serial.flush();
   esp_err_t err = esp_camera_init(&config);
+  Serial.printf("camera init done err=0x%x\n", err);
+  Serial.flush();
   if (err != ESP_OK) {
-    Serial.printf("camera init failed: 0x%x size=%u psram=%d xclk=%d\n", err, (unsigned)size,
-                  use_psram, xclk_hz);
     return false;
   }
   sensor_t *sensor = esp_camera_sensor_get();
@@ -139,8 +133,7 @@ static bool init_camera(framesize_t size, bool use_psram, int xclk_hz) {
     sensor->set_gain_ctrl(sensor, 1);
     sensor->set_exposure_ctrl(sensor, 1);
   }
-  delay(300);
-  discard_warmup_frames();
+  delay(200);
   return probe_frame();
 }
 
@@ -158,14 +151,15 @@ static bool start_camera() {
     const char *name;
   };
   const Try tries[] = {
+      {FRAMESIZE_QVGA, true, 10000000, "QVGA PSRAM 10MHz"},
       {FRAMESIZE_QVGA, false, 10000000, "QVGA DRAM 10MHz"},
       {FRAMESIZE_QVGA, false, 8000000, "QVGA DRAM 8MHz"},
-      {FRAMESIZE_QVGA, true, 10000000, "QVGA PSRAM 10MHz"},
       {FRAMESIZE_QQVGA, false, 8000000, "QQVGA DRAM 8MHz"},
   };
 
   for (size_t i = 0; i < sizeof(tries) / sizeof(tries[0]); ++i) {
     Serial.printf("camera try %s\n", tries[i].name);
+    Serial.flush();
     if (init_camera(tries[i].size, tries[i].psram, tries[i].xclk)) {
       g_camera_ok = true;
       g_camera_mode = tries[i].name;
@@ -367,6 +361,13 @@ static void start_http() {
   Serial.println("HTTP on :80  /  /stream  /capture  /status");
 }
 
+static void camera_task(void *) {
+  if (!start_camera()) {
+    Serial.println("camera failed; AP already up — open /status then /capture");
+  }
+  vTaskDelete(nullptr);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -376,9 +377,7 @@ void setup() {
   // AP first so Safari /status works even if the sensor hangs on init.
   start_wifi();
   start_http();
-  if (!start_camera()) {
-    Serial.println("camera failed; AP already up — open /status then /capture");
-  }
+  xTaskCreatePinnedToCore(camera_task, "cam", 8192, nullptr, 1, nullptr, 1);
 }
 
 void loop() {
