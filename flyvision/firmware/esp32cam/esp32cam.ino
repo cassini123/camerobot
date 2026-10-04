@@ -19,12 +19,13 @@
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include <string.h>
 #include <WiFi.h>
 
 #include "camera_pins.h"
 #include "config.h"
 
-#define FLYVISION_FW "qvga-dram-5"
+#define FLYVISION_FW "qvga-dram-6"
 
 static const char STREAM_CONTENT_TYPE[] = "multipart/x-mixed-replace;boundary=frame";
 static const char STREAM_BOUNDARY[] = "\r\n--frame\r\n";
@@ -40,17 +41,42 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   <h1 style="font-size:20px">flyvision CAM</h1>
   <p>不要用 Safari 打开 /stream，会整页发白。先看下面这张静图。</p>
   <p>
-    <a href="/capture" style="color:#9cf">/capture</a> ·
+    <a href="/capture" style="color:#9cf">打开 /capture</a> ·
     <a href="/status" style="color:#9cf">/status</a>
   </p>
-  <img src="/capture" alt="capture" style="width:100%;max-width:640px;background:#333"/>
+  <p>不要同时开两个标签刷新。等 1 秒再刷新。</p>
 </body>
 </html>
 )HTML";
 
 static bool g_camera_ok = false;
-static uint32_t g_last_jpeg_len = 0;
+static uint8_t *g_last_jpeg = nullptr;
+static size_t g_last_jpeg_len = 0;
+static size_t g_last_jpeg_cap = 0;
 static const char *g_camera_mode = "none";
+static SemaphoreHandle_t g_cam_lock = nullptr;
+
+static bool store_jpeg(const uint8_t *buf, size_t len) {
+  if (buf == nullptr || len == 0) {
+    return false;
+  }
+  if (g_last_jpeg == nullptr || g_last_jpeg_cap < len) {
+    size_t cap = len + 2048;
+    uint8_t *next = (uint8_t *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (next == nullptr) {
+      next = (uint8_t *)malloc(cap);
+    }
+    if (next == nullptr) {
+      return false;
+    }
+    free(g_last_jpeg);
+    g_last_jpeg = next;
+    g_last_jpeg_cap = cap;
+  }
+  memcpy(g_last_jpeg, buf, len);
+  g_last_jpeg_len = len;
+  return true;
+}
 
 static camera_config_t make_camera_config(framesize_t size, bool use_psram, int xclk_hz) {
   camera_config_t config = {};
@@ -89,13 +115,16 @@ static camera_config_t make_camera_config(framesize_t size, bool use_psram, int 
 }
 
 static camera_fb_t *grab_frame() {
-  for (int i = 0; i < 8; ++i) {
+  for (int i = 0; i < 16; ++i) {
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb != nullptr) {
-      g_last_jpeg_len = fb->len;
-      return fb;
+      if (fb->len > 0) {
+        store_jpeg(fb->buf, fb->len);
+        return fb;
+      }
+      esp_camera_fb_return(fb);
     }
-    delay(40);
+    delay(50);
   }
   return nullptr;
 }
@@ -261,33 +290,72 @@ static esp_err_t status_handler(httpd_req_t *req) {
   return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
-static esp_err_t capture_handler(httpd_req_t *req) {
-  camera_fb_t *fb = grab_frame();
-  if (!fb) {
-    Serial.println("capture: fb grab failed");
-    return send_html(
-        req,
-        "503 Service Unavailable",
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>no jpeg</title></head>"
-        "<body style='font:16px sans-serif;padding:24px;background:#111;color:#eee'>"
-        "<h1>摄像头没拿到图</h1>"
-        "<p>不是网址错了。Safari 以前把这个失败显示成白页。</p>"
-        "<p>打开 Arduino 串口（115200），看有没有 <code>fb grab failed</code> 或 "
-        "<code>EV-VSYNC-OVF</code>。</p>"
-        "<p><a href='/status' style='color:#9cf'>打开 /status</a></p>"
-        "</body></html>");
-  }
+static esp_err_t send_jpeg(httpd_req_t *req, bool stale) {
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+  if (stale) {
+    httpd_resp_set_hdr(req, "X-Flyvision-Stale", "1");
+  }
   add_cors(req);
-  esp_err_t err = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-  esp_camera_fb_return(fb);
-  return err;
+  return httpd_resp_send(req, (const char *)g_last_jpeg, g_last_jpeg_len);
+}
+
+static bool lock_camera() {
+  if (g_cam_lock == nullptr) {
+    return true;
+  }
+  return xSemaphoreTake(g_cam_lock, pdMS_TO_TICKS(3000)) == pdTRUE;
+}
+
+static void unlock_camera() {
+  if (g_cam_lock != nullptr) {
+    xSemaphoreGive(g_cam_lock);
+  }
+}
+
+static esp_err_t capture_handler(httpd_req_t *req) {
+  if (!lock_camera()) {
+    if (g_last_jpeg_len > 0) {
+      return send_jpeg(req, true);
+    }
+    return send_html(req, "503 Service Unavailable",
+                     "<p style='font:16px sans-serif;padding:24px'>摄像头忙，等 1 秒再刷新。</p>");
+  }
+  camera_fb_t *fb = grab_frame();
+  if (fb != nullptr) {
+    // Copy already stored. Return the DMA buffer before HTTP send so a
+    // Safari refresh cannot leak the frame and kill the next grab.
+    esp_camera_fb_return(fb);
+    unlock_camera();
+    return send_jpeg(req, false);
+  }
+  unlock_camera();
+  Serial.println("capture: fb grab failed");
+  if (g_last_jpeg_len > 0) {
+    Serial.println("capture: serving last good jpeg");
+    return send_jpeg(req, true);
+  }
+  return send_html(
+      req,
+      "503 Service Unavailable",
+      "<!DOCTYPE html><html><head><meta charset='utf-8'><title>no jpeg</title></head>"
+      "<body style='font:16px sans-serif;padding:24px;background:#111;color:#eee'>"
+      "<h1>摄像头没拿到图</h1>"
+      "<p>打开 Arduino 串口（115200），看有没有 <code>fb grab failed</code> 或 "
+      "<code>EV-VSYNC-OVF</code>。</p>"
+      "<p><a href='/status' style='color:#9cf'>打开 /status</a></p>"
+      "</body></html>");
 }
 
 static esp_err_t stream_handler(httpd_req_t *req) {
+  if (!lock_camera()) {
+    return send_html(req, "503 Service Unavailable",
+                     "<p style='font:16px sans-serif;padding:24px'>摄像头忙。先关掉 /capture 标签。</p>");
+  }
   camera_fb_t *first = grab_frame();
   if (!first) {
+    unlock_camera();
     Serial.println("fb grab failed");
     return send_html(
         req,
@@ -303,6 +371,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   esp_err_t err = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
   if (err != ESP_OK) {
     esp_camera_fb_return(first);
+    unlock_camera();
     return err;
   }
   char part[64];
@@ -326,6 +395,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       break;
     }
   }
+  unlock_camera();
   return err;
 }
 
@@ -371,6 +441,7 @@ static void camera_task(void *) {
 void setup() {
   Serial.begin(115200);
   delay(200);
+  g_cam_lock = xSemaphoreCreateMutex();
   Serial.println();
   Serial.println("flyvision CAM collector");
   Serial.printf("fw=%s default=%s\n", FLYVISION_FW, "QVGA");
