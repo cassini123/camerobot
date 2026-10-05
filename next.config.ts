@@ -1,6 +1,24 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/flyvision/ort/:path*.mjs",
+        headers: [
+          { key: "Content-Type", value: "text/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/flyvision/ort/:path*.wasm",
+        headers: [
+          { key: "Content-Type", value: "application/wasm" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

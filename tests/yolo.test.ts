@@ -1,4 +1,5 @@
-import { boxIou, decodeYoloOutput, nms, primarySubject, SubjectTracker, type YoloDet } from "@/lib/yolo";
+import { boxIou, decodeYoloOutput, nms, primarySubject, SubjectTracker, YOLO_WASM_PATHS, type YoloDet } from "@/lib/yolo";
+import { isLocalOrtPath, ORT_WASM_FILES } from "@/lib/ort-runtime";
 import { describe, expect, it } from "vitest";
 
 describe("yolo decode / nms", () => {
@@ -93,5 +94,14 @@ describe("subject tracker", () => {
       { label: "person", score: 0.9, box: { x: 0.7, y: 0.2, w: 0.2, h: 0.5 } },
     ]);
     expect(next?.box.x).toBeGreaterThan(0.5);
+  });
+});
+
+describe("offline ORT wasm", () => {
+  it("loads onnxruntime from the same origin, not a CDN", () => {
+    expect(isLocalOrtPath(YOLO_WASM_PATHS)).toBe(true);
+    expect(isLocalOrtPath(ORT_WASM_FILES.mjs)).toBe(true);
+    expect(isLocalOrtPath(ORT_WASM_FILES.wasm)).toBe(true);
+    expect(YOLO_WASM_PATHS).not.toMatch(/jsdelivr|unpkg|googleapis/);
   });
 });

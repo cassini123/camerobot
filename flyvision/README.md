@@ -65,10 +65,12 @@ http://localhost:3000/flyvision
 ```
 
 Upload a photo on the left. The page loads `public/flyvision/yolov8n.onnx` and
-draws real COCO boxes. The right pane is a laptop webcam **or** an ESP32-CAM
-still URL. Local `next dev` proxies `/flyvision/cam/capture` to
+the same-origin onnxruntime WASM under `/flyvision/ort/` (no Google Fonts, no
+jsDelivr). Draw real COCO boxes. The right pane is a laptop webcam **or** an
+ESP32-CAM still URL. Local `next dev` proxies `/flyvision/cam/capture` to
 `http://192.168.4.1/capture` so Safari/YOLO do not use MJPEG. GO is occupancy
-+ heading + CLIP, not pinhole meters.
++ heading + CLIP, not pinhole meters. Joining `flyvision-cam` cuts the
+laptop off the internet — do not use Vercel or a CDN-backed model load.
 
 ```bash
 # one still, injected person box (no OpenCV)

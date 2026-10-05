@@ -236,7 +236,12 @@ export function FlyvisionWorkbench() {
       .catch((err: Error) => {
         if (!cancelled) {
           setModelState("error");
-          setDetectError(err.message || "YOLOv8 未加载");
+          const detail = err.message || "YOLOv8 未加载";
+          setDetectError(
+            /backend|wasm|Importing a module script/i.test(detail)
+              ? "YOLO 本地 wasm 没起来。停掉终端里的 npm run dev，再开一次"
+              : detail,
+          );
         }
       });
     void getClipSession()
@@ -731,13 +736,13 @@ export function FlyvisionWorkbench() {
                 <button
                   className="apple-drop"
                   type="button"
-                  disabled={modelState !== "ready" || camBusy}
+                  disabled={camBusy}
                   onClick={() => void startCamera(cameraId || undefined)}
                 >
                   <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
                   <em>
                     {modelState === "loading"
-                      ? "等 YOLOv8n 加载完"
+                      ? "YOLO 还在本地加载，可先开摄像头"
                       : camError ?? "先看 YOLOv8 识别，再对参考图"}
                   </em>
                 </button>
@@ -759,7 +764,7 @@ export function FlyvisionWorkbench() {
                       placeholder={LOCAL_CAM_CAPTURE_URL}
                       onChange={(event) => setCamUrl(event.target.value)}
                     />
-                    <button type="submit" disabled={modelState !== "ready" || camBusy}>
+                    <button type="submit" disabled={camBusy}>
                       {camBusy ? "连接中" : "连接"}
                     </button>
                   </div>
@@ -810,7 +815,7 @@ export function FlyvisionWorkbench() {
             ) : (
               <button
                 type="button"
-                disabled={modelState !== "ready" || camBusy}
+                disabled={camBusy}
                 onClick={() => void startCamera(cameraId || undefined)}
               >
                 {camBusy ? "打开中" : "开启摄像头"}

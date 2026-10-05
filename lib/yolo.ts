@@ -1,13 +1,14 @@
 /** Browser YOLOv8n via onnxruntime-web. No mock boxes. */
 
 import type { BBox } from "./flyvision-match";
+import { getOrt, type OrtSession } from "./ort-runtime";
+
+export { ORT_WASM_DIR as YOLO_WASM_PATHS } from "./ort-runtime";
 
 export const YOLO_INPUT = 640;
 export const YOLO_CONF = 0.35;
 export const YOLO_IOU = 0.45;
 export const YOLO_MODEL_URL = "/flyvision/yolov8n.onnx";
-export const YOLO_WASM_CDN =
-  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
 
 export const COCO_LABELS = [
   "person",
@@ -98,26 +99,6 @@ export type YoloDet = {
   box: BBox;
 };
 
-type OrtRuntime = {
-  env: { wasm: { wasmPaths: string; numThreads: number } };
-  Tensor: new (type: string, data: Float32Array, dims: number[]) => unknown;
-  InferenceSession: {
-    create: (
-      path: string,
-      options: { executionProviders: string[] },
-    ) => Promise<OrtSession>;
-  };
-};
-
-type OrtSession = {
-  inputNames: string[];
-  outputNames: string[];
-  run: (feeds: Record<string, unknown>) => Promise<
-    Record<string, { data: Float32Array; dims: readonly number[] }>
-  >;
-};
-
-let ortModule: OrtRuntime | null = null;
 let sessionPromise: Promise<OrtSession> | null = null;
 let inferLock: Promise<void> = Promise.resolve();
 
@@ -336,17 +317,6 @@ export async function getYoloSession(): Promise<OrtSession> {
     })();
   }
   return sessionPromise;
-}
-
-async function getOrt(): Promise<OrtRuntime> {
-  if (ortModule) {
-    return ortModule;
-  }
-  const ort = (await import("onnxruntime-web")) as unknown as OrtRuntime;
-  ort.env.wasm.wasmPaths = YOLO_WASM_CDN;
-  ort.env.wasm.numThreads = 1;
-  ortModule = ort;
-  return ort;
 }
 
 function letterboxTensor(

@@ -2,33 +2,14 @@
 
 import type { RgbPixels } from "./flyvision-match";
 import { cosineSimilarity } from "./flyvision-match";
+import { getOrt, type OrtSession } from "./ort-runtime";
+
+export { ORT_WASM_DIR as CLIP_WASM_PATHS } from "./ort-runtime";
 
 export const CLIP_INPUT = 256;
 export const CLIP_DIM = 512;
 export const CLIP_MODEL_URL = "/flyvision/mobileclip2-s0.onnx";
-export const CLIP_WASM_CDN =
-  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
 
-type OrtRuntime = {
-  env: { wasm: { wasmPaths: string; numThreads: number } };
-  Tensor: new (type: string, data: Float32Array, dims: number[]) => unknown;
-  InferenceSession: {
-    create: (
-      path: string,
-      options: { executionProviders: string[] },
-    ) => Promise<OrtSession>;
-  };
-};
-
-type OrtSession = {
-  inputNames: string[];
-  outputNames: string[];
-  run: (feeds: Record<string, unknown>) => Promise<
-    Record<string, { data: Float32Array; dims: readonly number[] }>
-  >;
-};
-
-let ortModule: OrtRuntime | null = null;
 let sessionPromise: Promise<OrtSession> | null = null;
 let inferLock: Promise<void> = Promise.resolve();
 
@@ -93,15 +74,4 @@ export async function embedClip(image: RgbPixels): Promise<number[]> {
 
 export function clipCosine(left: number[], right: number[]): number {
   return cosineSimilarity(left, right);
-}
-
-async function getOrt(): Promise<OrtRuntime> {
-  if (ortModule) {
-    return ortModule;
-  }
-  const ort = (await import("onnxruntime-web")) as unknown as OrtRuntime;
-  ort.env.wasm.wasmPaths = CLIP_WASM_CDN;
-  ort.env.wasm.numThreads = 1;
-  ortModule = ort;
-  return ort;
 }

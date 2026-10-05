@@ -72,8 +72,8 @@ Laptop STA 加入 AP
 
 浏览器工作台 `/flyvision`：
 
-1. **YOLOv8n**（`public/flyvision/yolov8n.onnx` + onnxruntime-web）  
-   左边上传图、右边电脑摄像头或 ESP32-CAM MJPEG，同一套 COCO 检测。
+1. **YOLOv8n**（`public/flyvision/yolov8n.onnx` + 本地 `/flyvision/ort` wasm）  
+   左边上传图、右边电脑摄像头或 ESP32-CAM 静帧，同一套 COCO 检测。CAM AP 没外网，不走 jsDelivr。
 2. **Shot match**（`lib/flyvision-match.ts` + `lib/clip-embed.ts`）  
    **MobileCLIP2-S0** 余弦为主，HSV 直方图只当色调辅项。框中心构图判决不换成嵌入。
 3. **占位伺服 + 针孔旁注**（`lib/spatial.ts`）  
