@@ -153,6 +153,162 @@
   flex-direction: column;
 }
 
+.apple-idle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr auto;
+}
+
+.apple-idle-grid .apple-drop {
+  min-height: 180px;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.apple-idle-grid .apple-drop:last-of-type {
+  border-right: 0;
+}
+
+.apple-idle-grid .apple-cam-url {
+  grid-column: 1 / -1;
+}
+
+.apple-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.apple-tabs button {
+  border: 0;
+  background: #fff;
+  color: #86868b;
+  border-radius: 980px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+
+.apple-tabs button.is-on {
+  background: #1d1d1f;
+  color: #fff;
+}
+
+.apple-shot-tag,
+.apple-ok {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.apple-ok {
+  top: auto;
+  bottom: 10px;
+  background: rgba(52, 199, 89, 0.92);
+  font-size: 18px;
+  padding: 8px 14px;
+}
+
+.apple-seq {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.apple-seq button,
+.apple-seq-item {
+  border: 0;
+  background: #fff;
+  border-radius: 980px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+
+.apple-seq-item.is-on {
+  background: #1d1d1f;
+  color: #fff;
+}
+
+.apple-seq-item.is-done {
+  outline: 2px solid #34c759;
+}
+
+.apple-pack {
+  border: 0;
+  background: #1d1d1f;
+  color: #fff;
+  border-radius: 980px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.apple-pack:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.apple-gallery {
+  width: 100%;
+  margin-left: auto;
+}
+
+.apple-gallery > button {
+  border: 0;
+  background: #fff;
+  border-radius: 980px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+}
+
+.apple-gallery-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-top: 10px;
+  padding-bottom: 4px;
+}
+
+.apple-gallery-row figure {
+  margin: 0;
+  width: 92px;
+  flex: 0 0 auto;
+}
+
+.apple-gallery-row img {
+  width: 92px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+}
+
+.apple-gallery-row figcaption {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.apple-gallery-row em {
+  font-style: normal;
+  color: #86868b;
+  margin-left: 4px;
+}
+
 .apple-idle .apple-drop {
   min-height: 150px;
   flex: 1;
