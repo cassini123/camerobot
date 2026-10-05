@@ -61,6 +61,7 @@ Plan (stages, connected models, distance formula): [`PLAN.md`](PLAN.md)
 Workbench `/flyvision`:
 
 - Left: upload **images** (a1…an) or a **video** (auto-split at 24 fps).
+  Photos can be cropped to 4:3 / 16:9 / 3:4 / 1:1 before YOLO runs.
 - Right: **电脑摄像头** or **开发板摄像头** as two equal buttons. Live view
   toggles 视频 / 帧. YOLO runs on the frame.
 - Pass: every object ≥1% of the frame has x1/y1/x2/y2 relative error ≤10%

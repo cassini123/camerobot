@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FlyvisionCropEditor } from "@/components/FlyvisionCropEditor";
 import { getClipSession } from "@/lib/clip-embed";
+import { imageAspect } from "@/lib/flyvision-crop";
 import { extractVideoFrames, recordFrameVideo } from "@/lib/flyvision-frames";
 import {
   STABLE_PASS_FRAMES,
@@ -59,6 +61,12 @@ type RefShot = {
   url: string;
   objects: SceneObject[];
   dets: RichDet[];
+  aspect: number;
+};
+
+type PendingStill = {
+  url: string;
+  replaceIndex?: number;
 };
 
 type SavedTake = {
@@ -175,6 +183,8 @@ export function FlyvisionWorkbench() {
   const [passed, setPassed] = useState(false);
   const [saved, setSaved] = useState<SavedTake[]>([]);
   const [galleryOpen, setGalleryOpen] = useState(true);
+  const [pendingStills, setPendingStills] = useState<PendingStill[]>([]);
+  const [editing, setEditing] = useState<PendingStill | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mjpegRef = useRef<HTMLImageElement | null>(null);
@@ -197,6 +207,7 @@ export function FlyvisionWorkbench() {
   const liveSpatialOptsRef = useRef(liveSpatialOpts);
   liveSpatialOptsRef.current = liveSpatialOpts;
   const current = shots[shotIndex] ?? null;
+  const cropAspect = shots[0]?.aspect ?? 4 / 3;
   const leftPrimary = current ? (primarySubject(current.dets) as RichDet | null) : null;
   const rightPrimary = primarySubject(rightDets) as RichDet | null;
   const rightObjects = useMemo(() => sceneObjects(rightDets), [rightDets]);
@@ -231,38 +242,104 @@ export function FlyvisionWorkbench() {
       await detectYolo(image, image.naturalWidth, image.naturalHeight),
       { aspect: image.naturalWidth / image.naturalHeight, hfovDeg: webcamHfovDeg, personHeightM },
     );
-    return { name, url, dets, objects: sceneObjects(dets) };
+    return {
+      name,
+      url,
+      dets,
+      objects: sceneObjects(dets),
+      aspect: imageAspect(image.naturalWidth, image.naturalHeight),
+    };
   }, [personHeightM, webcamHfovDeg]);
 
-  const addImageFiles = useCallback(
-    async (files: File[]) => {
-      if (!files.length) {
-        return;
-      }
-      setSourceKind("image");
+  const addImageFiles = useCallback((files: File[]) => {
+    const queued = files
+      .filter((file) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(file.name))
+      .map((file) => ({ url: URL.createObjectURL(file) }));
+    if (!queued.length) {
+      setDetectError("没有可用的图片");
+      return;
+    }
+    setSourceKind("image");
+    setPendingStills(queued.slice(1));
+    setEditing(queued[0]);
+    setDetectError(null);
+  }, []);
+
+  const finishEditing = useCallback(
+    async (sourceUrl: string, replaceIndex?: number) => {
       setExtracting("识别参考图…");
       try {
-        const created: RefShot[] = [];
-        for (const file of files) {
-          if (!file.type.startsWith("image/")) {
-            continue;
+        if (replaceIndex != null && shots[replaceIndex]) {
+          const prev = shots[replaceIndex];
+          const next = await analyzeUrl(sourceUrl, prev.name);
+          if (prev.url !== sourceUrl) {
+            URL.revokeObjectURL(prev.url);
           }
-          const url = URL.createObjectURL(file);
-          created.push(await analyzeUrl(url, shotName("a", shots.length + created.length)));
+          setShots((list) => list.map((shot, index) => (index === replaceIndex ? next : shot)));
+          setShotIndex(replaceIndex);
+        } else {
+          const shot = await analyzeUrl(sourceUrl, shotName("a", shots.length));
+          setShots((list) => [...list, shot]);
+          setShotIndex(shots.length);
         }
-        if (!created.length) {
-          throw new Error("没有可用的图片");
-        }
-        setShots((prev) => [...prev, ...created]);
         setDetectError(null);
       } catch (err) {
         setDetectError(err instanceof Error ? err.message : "参考图失败");
+        if (sourceUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(sourceUrl);
+        }
       } finally {
         setExtracting("");
       }
     },
-    [analyzeUrl, shots.length],
+    [analyzeUrl, shots],
   );
+
+  const advanceQueue = useCallback(() => {
+    setPendingStills((queue) => {
+      const [next, ...rest] = queue;
+      setEditing(next ?? null);
+      return rest;
+    });
+  }, []);
+
+  async function confirmCrop(blob: Blob) {
+    if (!editing) {
+      return;
+    }
+    const cropped = URL.createObjectURL(blob);
+    if (editing.replaceIndex == null) {
+      URL.revokeObjectURL(editing.url);
+    }
+    const replaceIndex = editing.replaceIndex;
+    setEditing(null);
+    await finishEditing(cropped, replaceIndex);
+    advanceQueue();
+  }
+
+  async function skipCrop() {
+    if (!editing) {
+      return;
+    }
+    const { url, replaceIndex } = editing;
+    setEditing(null);
+    if (replaceIndex == null) {
+      await finishEditing(url);
+    }
+    advanceQueue();
+  }
+
+  function cancelCrop() {
+    if (!editing) {
+      return;
+    }
+    if (editing.replaceIndex == null) {
+      URL.revokeObjectURL(editing.url);
+      pendingStills.forEach((item) => URL.revokeObjectURL(item.url));
+    }
+    setPendingStills([]);
+    setEditing(null);
+  }
 
   const addVideoFile = useCallback(
     async (file: File) => {
@@ -654,7 +731,16 @@ export function FlyvisionWorkbench() {
               void onPick(event.dataTransfer.files);
             }}
           >
-            {current ? (
+            {editing ? (
+              <FlyvisionCropEditor
+                src={editing.url}
+                title={editing.replaceIndex != null ? `重裁 ${shots[editing.replaceIndex]?.name ?? ""}` : `裁切 a${shots.length + 1}`}
+                defaultAspect={cropAspect}
+                onConfirm={(blob) => void confirmCrop(blob)}
+                onSkip={() => void skipCrop()}
+                onCancel={cancelCrop}
+              />
+            ) : current ? (
               <div className="apple-media">
                 <img src={current.url} alt={current.name} />
                 <Boxes dets={current.dets} primary={leftPrimary} />
@@ -666,7 +752,7 @@ export function FlyvisionWorkbench() {
                 <em>
                   {uploadKind === "video"
                     ? `自动拆成 ${VIDEO_FPS} 帧/秒，最多 ${VIDEO_MAX_FRAMES} 帧`
-                    : "可多选。只保留占画面 ≥1% 的物体"}
+                    : "比例不同先裁切，确认后再比对"}
                 </em>
               </button>
             )}
@@ -675,6 +761,14 @@ export function FlyvisionWorkbench() {
             <button type="button" onClick={() => fileRef.current?.click()}>
               {shots.length ? (uploadKind === "video" ? "换视频" : "加图片") : "上传"}
             </button>
+            {current && !editing ? (
+              <button
+                type="button"
+                onClick={() => setEditing({ url: current.url, replaceIndex: shotIndex })}
+              >
+                裁切
+              </button>
+            ) : null}
             {shots.map((shot, index) => (
               <button
                 key={shot.name}
