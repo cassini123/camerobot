@@ -2,42 +2,45 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { embedClip, getClipSession } from "@/lib/clip-embed";
+import { FlyvisionCropEditor } from "@/components/FlyvisionCropEditor";
+import { getClipSession } from "@/lib/clip-embed";
+import { imageAspect } from "@/lib/flyvision-crop";
+import { extractVideoFrames, recordFrameVideo } from "@/lib/flyvision-frames";
 import {
-  CAPTURE_GO,
-  extractFeatures,
-  nextDecision,
-  rgbaToRgb,
-  scoreMatch,
-  type RgbPixels,
-} from "@/lib/flyvision-match";
+  appendMonitorLine,
+  formatMonitorTime,
+  shouldThrottle,
+  type MonitorLevel,
+  type MonitorLine,
+} from "@/lib/flyvision-monitor";
 import {
-  formatShotLabels,
-  labelShot,
-  labelSimilarity,
-  type ShotLabelSet,
-} from "@/lib/shot-labels";
+  STABLE_PASS_FRAMES,
+  VIDEO_FPS,
+  VIDEO_MAX_FRAMES,
+  droneCommand,
+  matchFailText,
+  pairObjects,
+  sceneObjects,
+  shotName,
+  type DroneCommand,
+  type SceneObject,
+  type SequenceMatch,
+} from "@/lib/flyvision-sequence";
 import {
-  cropLabel,
   camStillUrl,
   DEFAULT_ESP_CAM_CAPTURE_URL,
   ESP32CAM_HFOV_DEG,
   LOCAL_CAM_CAPTURE_URL,
   estimateSpatial,
-  formatMetersHint,
-  headingLabel,
   hfovForSource,
   httpsBlocksHttpStream,
-  judgeGeometry,
   SpatialSmoother,
   WEBCAM_HFOV_DEG,
-  type GeometryGate,
   type LiveSource,
   type SpatialFix,
   type SpatialOptions,
 } from "@/lib/spatial";
 import {
-  boxIou,
   detectYolo,
   getYoloSession,
   primarySubject,
@@ -61,6 +64,29 @@ const LABEL_ZH: Record<string, string> = {
 
 type RichDet = YoloDet & { spatial: SpatialFix | null };
 
+type RefShot = {
+  name: string;
+  url: string;
+  objects: SceneObject[];
+  dets: RichDet[];
+  aspect: number;
+};
+
+type PendingStill = {
+  url: string;
+  replaceIndex?: number;
+};
+
+type SavedTake = {
+  name: string;
+  url: string;
+  refName: string;
+  blob: Blob;
+};
+
+type UploadKind = "image" | "video";
+type LiveView = "video" | "frame";
+
 function zh(label: string): string {
   return LABEL_ZH[label] ?? label;
 }
@@ -72,22 +98,6 @@ function loadHtmlImage(url: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error("无法读取图片"));
     image.src = url;
   });
-}
-
-function imagePixels(image: HTMLImageElement): RgbPixels {
-  const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("canvas");
-  }
-  ctx.drawImage(image, 0, 0);
-  return rgbaToRgb(
-    ctx.getImageData(0, 0, canvas.width, canvas.height).data,
-    canvas.width,
-    canvas.height,
-  );
 }
 
 function enrich(dets: YoloDet[], options: SpatialOptions): RichDet[] {
@@ -139,7 +149,7 @@ async function pullCamStill(url: string): Promise<string> {
       lastErr = err;
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error("连不上 CAM");
+  throw lastErr instanceof Error ? lastErr : new Error("连不上开发板");
 }
 
 function camErrorText(err: unknown): string {
@@ -153,77 +163,95 @@ function camErrorText(err: unknown): string {
   if (name === "NotReadableError" || name === "TrackStartError") {
     return "摄像头被别的程序占用";
   }
-  if (name === "OverconstrainedError") {
-    return "这台电脑的摄像头打不开预设分辨率，换一个试试";
-  }
   return err instanceof Error ? err.message : "没有摄像头";
 }
 
 export function FlyvisionWorkbench() {
   const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
-  const [clipState, setClipState] = useState<"loading" | "ready" | "error">("loading");
-  const [uploadUrl, setUploadUrl] = useState<string | null>(null);
-  const [leftDets, setLeftDets] = useState<RichDet[]>([]);
-  const [rightDets, setRightDets] = useState<RichDet[]>([]);
-  const [leftLabels, setLeftLabels] = useState<ShotLabelSet | null>(null);
-  const [rightLabels, setRightLabels] = useState<ShotLabelSet | null>(null);
+  const [uploadKind, setUploadKind] = useState<UploadKind>("image");
+  const [extracting, setExtracting] = useState("");
+  const [shots, setShots] = useState<RefShot[]>([]);
+  const [shotIndex, setShotIndex] = useState(0);
+  const [sourceKind, setSourceKind] = useState<UploadKind>("image");
   const [webcamHfovDeg, setWebcamHfovDeg] = useState(WEBCAM_HFOV_DEG);
   const [camHfovDeg, setCamHfovDeg] = useState(ESP32CAM_HFOV_DEG);
   const [personHeightM, setPersonHeightM] = useState(1.7);
-  const [rejectPartial, setRejectPartial] = useState(true);
   const [camError, setCamError] = useState<string | null>(null);
   const [liveKind, setLiveKind] = useState<LiveSource>("idle");
+  const [liveView, setLiveView] = useState<LiveView>("video");
+  const [frameStillUrl, setFrameStillUrl] = useState<string | null>(null);
+  const [frameDets, setFrameDets] = useState<RichDet[]>([]);
+  const [logs, setLogs] = useState<MonitorLine[]>([]);
   const [camBusy, setCamBusy] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
-  const [cameraId, setCameraId] = useState<string>("");
+  const [cameraId, setCameraId] = useState("");
   const [camUrl, setCamUrl] = useState(LOCAL_CAM_CAPTURE_URL);
   const [pageHttps, setPageHttps] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
-  const [verdict, setVerdict] = useState<{
-    similarity: number;
-    decision: string;
-    compositionOk: boolean;
-    geometry: GeometryGate | null;
-    metersHint: string | null;
-    leftLabel: string;
-    rightLabel: string;
-    clip: number | null;
-  } | null>(null);
+  const [rightDets, setRightDets] = useState<RichDet[]>([]);
+  const [match, setMatch] = useState<SequenceMatch | null>(null);
+  const [command, setCommand] = useState<DroneCommand | null>(null);
+  const [passed, setPassed] = useState(false);
+  const [saved, setSaved] = useState<SavedTake[]>([]);
+  const [galleryOpen, setGalleryOpen] = useState(true);
+  const [pendingStills, setPendingStills] = useState<PendingStill[]>([]);
+  const [editing, setEditing] = useState<PendingStill | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mjpegRef = useRef<HTMLImageElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const stableRef = useRef(0);
-  const leftPixelsRef = useRef<RgbPixels | null>(null);
-  const leftAspectRef = useRef(16 / 9);
-  const leftEmbedRef = useRef<number[] | null>(null);
-  const liveSmoothRef = useRef(new SpatialSmoother(5));
   const trackerRef = useRef(new SubjectTracker());
+  const liveSmoothRef = useRef(new SpatialSmoother(5));
   const liveKindRef = useRef(liveKind);
   const camPollRef = useRef(false);
   const camBlobRef = useRef<string | null>(null);
+  const frameStillRef = useRef<string | null>(null);
+  const passCountRef = useRef(0);
+  const savingRef = useRef(false);
+  const logIdRef = useRef(0);
+  const logThrottleRef = useRef<Record<string, number>>({});
+  const logEndRef = useRef<HTMLDivElement | null>(null);
   liveKindRef.current = liveKind;
   const live = liveKind !== "idle";
   const mixedCam = pageHttps && httpsBlocksHttpStream("https:", camUrl);
   const hfovDeg = hfovForSource(liveKind, webcamHfovDeg, camHfovDeg);
-  const leftSpatialOpts = useMemo(
-    () => ({ hfovDeg: webcamHfovDeg, personHeightM, rejectPartial }),
-    [webcamHfovDeg, personHeightM, rejectPartial],
-  );
   const liveSpatialOpts = useMemo(
-    () => ({ hfovDeg, personHeightM, rejectPartial }),
-    [hfovDeg, personHeightM, rejectPartial],
+    () => ({ hfovDeg, personHeightM, rejectPartial: true }),
+    [hfovDeg, personHeightM],
   );
-  const leftSpatialOptsRef = useRef(leftSpatialOpts);
-  leftSpatialOptsRef.current = leftSpatialOpts;
   const liveSpatialOptsRef = useRef(liveSpatialOpts);
   liveSpatialOptsRef.current = liveSpatialOpts;
-  const clipStateRef = useRef(clipState);
-  clipStateRef.current = clipState;
+  const current = shots[shotIndex] ?? null;
+  const cropAspect = shots[0]?.aspect ?? 4 / 3;
+  const leftPrimary = current ? (primarySubject(current.dets) as RichDet | null) : null;
+  const rightPrimary = primarySubject(rightDets) as RichDet | null;
+  const framePrimary = primarySubject(frameDets) as RichDet | null;
+  const rightObjects = useMemo(() => sceneObjects(rightDets), [rightDets]);
+
+  const pushLog = useCallback((level: MonitorLevel, msg: string, throttleMs = 0) => {
+    const now = Date.now();
+    const key = `${level}:${msg}`;
+    if (throttleMs > 0 && shouldThrottle(logThrottleRef.current[key], now, throttleMs)) {
+      return;
+    }
+    if (throttleMs > 0) {
+      logThrottleRef.current[key] = now;
+    }
+    const line: MonitorLine = { id: ++logIdRef.current, t: now, level, msg };
+    setLogs((list) => appendMonitorLine(list, line));
+    if (level === "ERR") {
+      setDetectError(msg);
+    }
+  }, []);
 
   useEffect(() => {
     setPageHttps(window.location.protocol === "https:");
-  }, []);
+    pushLog("INFO", "监视器已开。失败会留在这里，不会只闪一下");
+  }, [pushLog]);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: "end" });
+  }, [logs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,84 +259,163 @@ export function FlyvisionWorkbench() {
       .then(() => {
         if (!cancelled) {
           setModelState("ready");
+          pushLog("OK", "本机 YOLO 就绪");
         }
       })
       .catch((err: Error) => {
         if (!cancelled) {
           setModelState("error");
-          const detail = err.message || "YOLOv8 未加载";
-          setDetectError(
-            /backend|wasm|Importing a module script|Failed to fetch|infer HTTP/i.test(detail)
-              ? "本机 YOLO 没起来。停掉终端里的 npm run dev，再开一次。不要开 Vercel。"
-              : detail,
-          );
+          pushLog("ERR", err.message || "本机 YOLO 没起来");
         }
       });
-    void getClipSession()
-      .then(() => {
-        if (!cancelled) {
-          setClipState("ready");
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setClipState("error");
-        }
-      });
+    void getClipSession().catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pushLog]);
 
-  const runLeftDetect = useCallback(async (url: string) => {
+  const analyzeUrl = useCallback(async (url: string, name: string): Promise<RefShot> => {
     const image = await loadHtmlImage(url);
-    const pixels = imagePixels(image);
-    leftPixelsRef.current = pixels;
-    leftAspectRef.current = image.naturalWidth / image.naturalHeight;
-    const dets = enrich(await detectYolo(image, image.naturalWidth, image.naturalHeight), {
-      aspect: leftAspectRef.current,
-      ...leftSpatialOptsRef.current,
-    });
-    setLeftDets(dets);
-    const primary = primarySubject(dets);
-    setLeftLabels(
-      primary ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1)) : null,
+    const dets = enrich(
+      await detectYolo(image, image.naturalWidth, image.naturalHeight),
+      { aspect: image.naturalWidth / image.naturalHeight, hfovDeg: webcamHfovDeg, personHeightM },
     );
-    if (clipStateRef.current === "ready") {
-      leftEmbedRef.current = await embedClip(pixels);
-    } else {
-      leftEmbedRef.current = null;
-    }
-    if (!dets.length) {
-      setDetectError("参考图里没有识别到主体");
-    } else {
-      setDetectError(null);
-    }
-  }, []);
+    return {
+      name,
+      url,
+      dets,
+      objects: sceneObjects(dets),
+      aspect: imageAspect(image.naturalWidth, image.naturalHeight),
+    };
+  }, [personHeightM, webcamHfovDeg]);
 
-  useEffect(() => {
-    if (modelState !== "ready" || !uploadUrl) {
+  const addImageFiles = useCallback((files: File[]) => {
+    const queued = files
+      .filter((file) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(file.name))
+      .map((file) => ({ url: URL.createObjectURL(file) }));
+    if (!queued.length) {
+      pushLog("ERR", "没有可用的图片");
       return;
     }
-    void runLeftDetect(uploadUrl).catch((err: Error) => {
-      setLeftDets([]);
-      setDetectError(err.message);
-    });
-  }, [modelState, uploadUrl, runLeftDetect, clipState]);
+    setSourceKind("image");
+    setPendingStills(queued.slice(1));
+    setEditing(queued[0]);
+    setDetectError(null);
+  }, [pushLog]);
 
-  useEffect(() => {
-    setLeftDets((dets) =>
-      dets.map((det) => ({
-        ...det,
-        spatial: estimateSpatial(det.label, det.box, {
-          aspect: leftAspectRef.current,
-          ...leftSpatialOpts,
-        }),
-      })),
-    );
-  }, [leftSpatialOpts]);
+  const finishEditing = useCallback(
+    async (sourceUrl: string, replaceIndex?: number) => {
+      setExtracting("识别参考图…");
+      try {
+        if (replaceIndex != null && shots[replaceIndex]) {
+          const prev = shots[replaceIndex];
+          const next = await analyzeUrl(sourceUrl, prev.name);
+          if (prev.url !== sourceUrl) {
+            URL.revokeObjectURL(prev.url);
+          }
+          setShots((list) => list.map((shot, index) => (index === replaceIndex ? next : shot)));
+          setShotIndex(replaceIndex);
+        } else {
+          const shot = await analyzeUrl(sourceUrl, shotName("a", shots.length));
+          setShots((list) => [...list, shot]);
+          setShotIndex(shots.length);
+        }
+        setDetectError(null);
+        pushLog("OK", replaceIndex != null ? `重裁 ${shots[replaceIndex]?.name ?? "参考图"} 已识别` : `${shotName("a", shots.length)} 已识别`);
+      } catch (err) {
+        pushLog("ERR", err instanceof Error ? err.message : "参考图失败");
+        if (sourceUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(sourceUrl);
+        }
+      } finally {
+        setExtracting("");
+      }
+    },
+    [analyzeUrl, shots, pushLog],
+  );
+
+  const advanceQueue = useCallback(() => {
+    setPendingStills((queue) => {
+      const [next, ...rest] = queue;
+      setEditing(next ?? null);
+      return rest;
+    });
+  }, []);
+
+  async function confirmCrop(blob: Blob) {
+    if (!editing) {
+      return;
+    }
+    const cropped = URL.createObjectURL(blob);
+    if (editing.replaceIndex == null) {
+      URL.revokeObjectURL(editing.url);
+    }
+    const replaceIndex = editing.replaceIndex;
+    setEditing(null);
+    await finishEditing(cropped, replaceIndex);
+    advanceQueue();
+  }
+
+  async function skipCrop() {
+    if (!editing) {
+      return;
+    }
+    const { url, replaceIndex } = editing;
+    setEditing(null);
+    if (replaceIndex == null) {
+      await finishEditing(url);
+    }
+    advanceQueue();
+  }
+
+  function cancelCrop() {
+    if (!editing) {
+      return;
+    }
+    if (editing.replaceIndex == null) {
+      URL.revokeObjectURL(editing.url);
+      pendingStills.forEach((item) => URL.revokeObjectURL(item.url));
+    }
+    setPendingStills([]);
+    setEditing(null);
+  }
+
+  const addVideoFile = useCallback(
+    async (file: File) => {
+      setSourceKind("video");
+      setExtracting(`视频抽帧 ${VIDEO_FPS} fps…`);
+      try {
+        const frames = await extractVideoFrames(file, VIDEO_FPS, VIDEO_MAX_FRAMES);
+        const created: RefShot[] = [];
+        for (const [index, blob] of frames.entries()) {
+          setExtracting(`YOLO ${index + 1}/${frames.length}`);
+          const url = URL.createObjectURL(blob);
+          created.push(await analyzeUrl(url, shotName("a", index)));
+        }
+        shots.forEach((shot) => URL.revokeObjectURL(shot.url));
+        setShots(created);
+        setShotIndex(0);
+        setSaved((prev) => {
+          prev.forEach((item) => URL.revokeObjectURL(item.url));
+          return [];
+        });
+        if (frames.length >= VIDEO_MAX_FRAMES) {
+          pushLog("INFO", `视频按 ${VIDEO_FPS} fps 取了前 ${frames.length} 帧`);
+        } else {
+          pushLog("OK", `视频抽出 ${frames.length} 帧`);
+        }
+        setDetectError(null);
+      } catch (err) {
+        pushLog("ERR", err instanceof Error ? err.message : "视频抽帧失败");
+      } finally {
+        setExtracting("");
+      }
+    },
+    [analyzeUrl, shots, pushLog],
+  );
 
   const stopLive = useCallback(() => {
+    pushLog("INFO", "关闭摄像头");
     camPollRef.current = false;
     if (camBlobRef.current) {
       URL.revokeObjectURL(camBlobRef.current);
@@ -328,86 +435,85 @@ export function FlyvisionWorkbench() {
     trackerRef.current.reset();
     setLiveKind("idle");
     setRightDets([]);
-    setRightLabels(null);
+    setMatch(null);
+    setCommand(null);
+    setPassed(false);
     setCamBusy(false);
-  }, []);
+  }, [pushLog]);
 
-  const startCamera = useCallback(
-    async (deviceId?: string) => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCamError("这个浏览器不能开摄像头，换 Chrome 或 Safari");
-        return;
-      }
-      setCamBusy(true);
-      setCamError(null);
-      camPollRef.current = false;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      const mjpeg = mjpegRef.current;
-      if (mjpeg) {
-        mjpeg.removeAttribute("src");
-      }
-      const video = videoRef.current;
-      const tried: MediaStreamConstraints[] = deviceId
-        ? [
-            {
-              audio: false,
-              video: {
-                deviceId: { exact: deviceId },
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              },
-            },
-            { audio: false, video: { deviceId: { exact: deviceId } } },
-          ]
-        : [
-            { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
-            { audio: false, video: true },
-          ];
-      let stream: MediaStream | null = null;
-      let lastErr: unknown = null;
-      for (const constraints of tried) {
-        try {
-          stream = await withTimeout(navigator.mediaDevices.getUserMedia(constraints), 8000);
-          break;
-        } catch (err) {
-          lastErr = err;
-        }
-      }
-      if (!stream) {
-        setCamBusy(false);
-        setLiveKind("idle");
-        setCamError(camErrorText(lastErr));
-        return;
-      }
-      streamRef.current = stream;
-      if (video) {
-        video.srcObject = stream;
-        try {
-          await video.play();
-        } catch {
-          // Autoplay can wait for the video element to layout; the next tick still runs.
-        }
-      }
-      const picked = stream.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId ?? "";
-      if (picked) {
-        setCameraId(picked);
-      }
+  const startCamera = useCallback(async (deviceId?: string) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const text = "这个浏览器不能开摄像头，换 Chrome 或 Safari";
+      setCamError(text);
+      pushLog("ERR", text);
+      return;
+    }
+    setCamBusy(true);
+    setCamError(null);
+    camPollRef.current = false;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    const mjpeg = mjpegRef.current;
+    if (mjpeg) {
+      mjpeg.removeAttribute("src");
+    }
+    const video = videoRef.current;
+    const tried: MediaStreamConstraints[] = deviceId
+      ? [
+          { audio: false, video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+          { audio: false, video: { deviceId: { exact: deviceId } } },
+        ]
+      : [
+          { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+          { audio: false, video: true },
+        ];
+    let stream: MediaStream | null = null;
+    let lastErr: unknown = null;
+    for (const constraints of tried) {
       try {
-        const all = await navigator.mediaDevices.enumerateDevices();
-        setCameras(all.filter((item) => item.kind === "videoinput"));
-      } catch {
-        setCameras([]);
+        stream = await withTimeout(navigator.mediaDevices.getUserMedia(constraints), 8000);
+        break;
+      } catch (err) {
+        lastErr = err;
       }
-      trackerRef.current.reset();
-      liveSmoothRef.current.reset();
-      setLiveKind("webcam");
+    }
+    if (!stream) {
       setCamBusy(false);
-    },
-    [],
-  );
+      setLiveKind("idle");
+      const text = camErrorText(lastErr);
+      setCamError(text);
+      pushLog("ERR", text);
+      return;
+    }
+    streamRef.current = stream;
+    if (video) {
+      video.srcObject = stream;
+      try {
+        await video.play();
+      } catch {
+        // layout can complete on the next tick
+      }
+    }
+    const picked = stream.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId ?? "";
+    if (picked) {
+      setCameraId(picked);
+    }
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      setCameras(all.filter((item) => item.kind === "videoinput"));
+    } catch {
+      setCameras([]);
+    }
+    trackerRef.current.reset();
+    liveSmoothRef.current.reset();
+    passCountRef.current = 0;
+    setLiveView("video");
+    setLiveKind("webcam");
+    setCamBusy(false);
+    pushLog("OK", "电脑摄像头已开");
+  }, [pushLog]);
 
   const startEspCam = useCallback(() => {
-    const url = camStillUrl(camUrl);
+    const url = camStillUrl(camUrl || LOCAL_CAM_CAPTURE_URL);
     setCamUrl(url);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -417,7 +523,9 @@ export function FlyvisionWorkbench() {
     }
     const mjpeg = mjpegRef.current;
     if (!mjpeg) {
-      setCamError("画面还没准备好，再连一次");
+      const text = "画面还没准备好，再点一次开发板";
+      setCamError(text);
+      pushLog("ERR", text);
       return;
     }
     camPollRef.current = true;
@@ -425,6 +533,7 @@ export function FlyvisionWorkbench() {
     setCamError(null);
     trackerRef.current.reset();
     liveSmoothRef.current.reset();
+    passCountRef.current = 0;
     if (url.startsWith("/")) {
       mjpeg.removeAttribute("crossorigin");
     } else {
@@ -446,8 +555,13 @@ export function FlyvisionWorkbench() {
               URL.revokeObjectURL(prev);
             }
             setCamBusy(false);
-            setLiveKind("esp-cam");
             setCamError(null);
+            if (liveKindRef.current !== "esp-cam") {
+              liveKindRef.current = "esp-cam";
+              setLiveView("video");
+              setLiveKind("esp-cam");
+              pushLog("OK", "开发板已接入");
+            }
           };
           img.src = obj;
         } catch (err) {
@@ -457,26 +571,32 @@ export function FlyvisionWorkbench() {
           if (liveKindRef.current !== "esp-cam") {
             setCamBusy(false);
             setLiveKind("idle");
-            setCamError(
+            const text =
               pageHttps && !url.startsWith("/")
-                ? "https 页面拦 http CAM。笔记本连上 flyvision-cam 后，用本地 http://localhost:3000/flyvision"
+                ? "https 拦开发板。用 http://localhost:3000/flyvision，并加入 flyvision-cam"
                 : err instanceof Error
                   ? err.message
-                  : "连不上 CAM。确认已加入 flyvision-cam，并用本地 localhost 打开工作台",
-            );
+                  : "连不上开发板。加入 flyvision-cam，再用本机 localhost";
+            setCamError(text);
+            pushLog("ERR", text);
             camPollRef.current = false;
             break;
           }
+          pushLog("ERR", err instanceof Error ? err.message : "开发板掉帧", 2000);
         }
         await new Promise((resolve) => window.setTimeout(resolve, 480));
       }
     };
     void loop();
-  }, [camUrl, pageHttps]);
+  }, [camUrl, pageHttps, pushLog]);
 
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (frameStillRef.current) {
+        URL.revokeObjectURL(frameStillRef.current);
+        frameStillRef.current = null;
+      }
     };
   }, []);
 
@@ -486,39 +606,59 @@ export function FlyvisionWorkbench() {
     }
     let timer = 0;
     let stopped = false;
+    let blank = 0;
     const tick = async () => {
       const frame = liveFrame(liveKindRef.current, videoRef.current, mjpegRef.current);
-      if (stopped || !frame) {
+      if (stopped) {
+        return;
+      }
+      if (!frame) {
+        blank += 1;
+        if (blank === 10) {
+          pushLog(
+            "ERR",
+            liveKindRef.current === "webcam" ? "电脑摄像头没有画面，出不了帧" : "开发板没有 JPEG，出不了帧",
+          );
+        }
         timer = window.setTimeout(() => void tick(), 360);
         return;
       }
+      blank = 0;
       try {
-        const aspect = frame.width / frame.height;
         const raw = await detectYolo(frame.source, frame.width, frame.height);
         const tracked = trackerRef.current.push(raw);
-        const rest = tracked
-          ? raw.filter((det) => boxIou(det.box, tracked.box) < 0.45)
-          : raw;
+        const rest = tracked ? raw.filter((det) => det !== tracked) : raw;
         const dets = enrich(tracked ? [tracked, ...rest] : rest, {
-          aspect,
+          aspect: frame.width / frame.height,
           ...liveSpatialOptsRef.current,
         });
-        const primary = tracked ? dets[0] : primarySubject(dets);
-        const smoothed = liveSmoothRef.current.push(
-          primary && "spatial" in primary ? (primary as RichDet).spatial : null,
-        );
-        const next = dets.map((det) =>
-          primary && det === primary ? { ...det, spatial: smoothed } : det,
-        );
-        if (!stopped) {
-          setRightDets(next);
-          setRightLabels(
-            primary ? labelShot(primary.box, primary.label, Math.max(0, dets.length - 1)) : null,
-          );
+        if (stopped) {
+          return;
+        }
+        setRightDets(dets);
+        if (dets.length === 0) {
+          pushLog("ERR", "这一帧 YOLO 没有检出 ≥1% 物体", 2000);
+        }
+        const still = await snapshotLiveFrame(frame);
+        if (stopped) {
+          if (still) {
+            URL.revokeObjectURL(still);
+          }
+          return;
+        }
+        if (!still) {
+          pushLog("ERR", "抓帧失败，这一帧没法冻结", 2000);
+        } else {
+          if (frameStillRef.current) {
+            URL.revokeObjectURL(frameStillRef.current);
+          }
+          frameStillRef.current = still;
+          setFrameStillUrl(still);
+          setFrameDets(dets);
         }
       } catch (err) {
         if (!stopped) {
-          setDetectError(err instanceof Error ? err.message : "实拍识别失败");
+          pushLog("ERR", err instanceof Error ? err.message : "实拍识别失败");
         }
       }
       timer = window.setTimeout(() => void tick(), 360);
@@ -530,125 +670,130 @@ export function FlyvisionWorkbench() {
       liveSmoothRef.current.reset();
       trackerRef.current.reset();
     };
-  }, [liveKind, modelState]);
+  }, [liveKind, modelState, pushLog]);
 
   useEffect(() => {
-    const left = primarySubject(leftDets);
-    const right = primarySubject(rightDets);
-    const leftPixels = leftPixelsRef.current;
+    if (!current || !live) {
+      setMatch(null);
+      setCommand(null);
+      setPassed(false);
+      passCountRef.current = 0;
+      return;
+    }
+    const next = pairObjects(current.objects, rightObjects);
+    setMatch(next);
     const frame = liveFrame(liveKind, videoRef.current, mjpegRef.current);
-    if (!left || !right || !leftPixels || !frame) {
-      setVerdict(null);
-      stableRef.current = 0;
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = frame.width;
-    canvas.height = frame.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return;
-    }
-    ctx.drawImage(frame.source, 0, 0);
-    const livePixels = rgbaToRgb(
-      ctx.getImageData(0, 0, canvas.width, canvas.height).data,
-      canvas.width,
-      canvas.height,
-    );
-    const current = extractFeatures(livePixels, right.box);
-    const reference = extractFeatures(leftPixels, left.box);
-    const labels =
-      leftLabels && rightLabels ? labelSimilarity(rightLabels, leftLabels) : undefined;
-    const geometry = judgeGeometry(left.box, right.box);
-    let cancelled = false;
-    const publish = (clipCosine?: number) => {
-      if (cancelled) {
-        return;
+    const cmd = droneCommand(current.objects, rightObjects, {
+      distanceM: rightPrimary?.spatial?.distanceM,
+      hfovDeg,
+      aspect: frame ? frame.width / frame.height : 4 / 3,
+    });
+    setCommand(next.ok ? null : cmd);
+    if (next.ok) {
+      passCountRef.current += 1;
+      const stable = passCountRef.current >= STABLE_PASS_FRAMES;
+      setPassed(stable);
+      if (passCountRef.current === STABLE_PASS_FRAMES) {
+        pushLog("OK", `${current.name} 对齐通过`);
       }
-      const match = scoreMatch(current, reference, 0.72, {
-        clipCosine,
-        labelSimilarity: labels,
-      });
-      const step = nextDecision(match.sceneMatch, geometry.geometryOk, stableRef.current, 4);
-      stableRef.current = step.nextCount;
-      const rightFix = "spatial" in right ? (right as RichDet).spatial : null;
-      setVerdict({
-        similarity: match.similarity,
-        decision: step.decision,
-        compositionOk: geometry.offsetOk,
-        geometry,
-        metersHint: rightFix ? formatMetersHint(rightFix) : null,
-        leftLabel: zh(left.label),
-        rightLabel: zh(right.label),
-        clip: match.clipSimilarity,
-      });
-    };
-    if (clipStateRef.current === "ready" && leftEmbedRef.current) {
-      void embedClip(livePixels)
-        .then((liveEmbed) => {
-          const clip = scoreMatch(
-            { ...current, embedding: liveEmbed },
-            { ...reference, embedding: leftEmbedRef.current ?? undefined },
-            0,
-          ).clipSimilarity;
-          publish(clip ?? undefined);
-        })
-        .catch(() => publish());
     } else {
-      publish();
+      passCountRef.current = 0;
+      setPassed(false);
+      const fail = matchFailText(next);
+      pushLog("ERR", `${current.name} 比对失败${fail ? ` ${fail}` : ""}`, 1600);
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [leftDets, rightDets, leftLabels, rightLabels, liveKind]);
+  }, [current, rightObjects, live, liveKind, hfovDeg, rightPrimary, pushLog]);
 
-  function snapLiveAsReference() {
+  useEffect(() => {
+    if (!passed || !current || savingRef.current) {
+      return;
+    }
+    if (saved.some((item) => item.refName === current.name)) {
+      return;
+    }
     const frame = liveFrame(liveKind, videoRef.current, mjpegRef.current);
     if (!frame) {
-      setDetectError("还没有实拍画面，先连接 CAM");
       return;
     }
+    savingRef.current = true;
     const canvas = document.createElement("canvas");
     canvas.width = frame.width;
     canvas.height = frame.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
+      savingRef.current = false;
       return;
     }
     ctx.drawImage(frame.source, 0, 0);
     canvas.toBlob((blob) => {
       if (!blob) {
+        savingRef.current = false;
         return;
       }
-      if (uploadUrl) {
-        URL.revokeObjectURL(uploadUrl);
+      const take: SavedTake = {
+        name: shotName("b", saved.length),
+        url: URL.createObjectURL(blob),
+        refName: current.name,
+        blob,
+      };
+      setSaved((prev) => [...prev, take]);
+      setGalleryOpen(true);
+      if (shotIndex + 1 < shots.length) {
+        setShotIndex(shotIndex + 1);
+        passCountRef.current = 0;
+        setPassed(false);
       }
-      setUploadUrl(URL.createObjectURL(blob));
-      setLeftDets([]);
-      stableRef.current = 0;
-      setDetectError(null);
+      savingRef.current = false;
     }, "image/jpeg", 0.92);
-  }
+  }, [passed, current, liveKind, saved, shotIndex, shots.length]);
 
-  function onUpload(file: File | undefined) {
-    if (!file) {
+  async function onPick(files: FileList | File[] | null) {
+    if (!files?.length) {
       return;
     }
-    if (uploadUrl) {
-      URL.revokeObjectURL(uploadUrl);
+    const list = Array.from(files);
+    if (uploadKind === "video") {
+      const video = list.find((file) => file.type.startsWith("video/") || /\.(mp4|mov|webm|m4v)$/i.test(file.name));
+      if (!video) {
+        pushLog("ERR", "选一个视频");
+        return;
+      }
+      await addVideoFile(video);
+      return;
     }
-    setUploadUrl(URL.createObjectURL(file));
-    setLeftDets([]);
-    stableRef.current = 0;
+    await addImageFiles(list.filter((file) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(file.name)));
   }
 
-  const leftPrimary = primarySubject(leftDets) as RichDet | null;
-  const rightPrimary = primarySubject(rightDets) as RichDet | null;
-  const go = verdict?.decision === CAPTURE_GO;
-  const statusText = go
-    ? "可以拍"
-    : verdict?.geometry?.summary ??
-      (live ? "继续对齐" : "打开电脑摄像头，或贴 ESP32-CAM 推流地址");
+  async function exportPack() {
+    if (!saved.length) {
+      pushLog("ERR", "还没有保存的 b 帧");
+      return;
+    }
+    if (sourceKind === "video") {
+      setExtracting("打包视频…");
+      try {
+        const video = await recordFrameVideo(saved.map((item) => item.blob), VIDEO_FPS);
+        downloadBlob(video, "flyvision-b.webm");
+        pushLog("OK", "已打包视频 flyvision-b.webm");
+      } catch (err) {
+        pushLog("ERR", err instanceof Error ? err.message : "导出视频失败");
+      } finally {
+        setExtracting("");
+      }
+      return;
+    }
+    saved.forEach((item) => downloadBlob(item.blob, `${item.name}.jpg`));
+    pushLog("OK", `已打包 ${saved.length} 张 b 帧`);
+  }
+
+  const done = shots.length > 0 && saved.length >= shots.length;
+  const statusText = !shots.length
+    ? "左边上传图片或视频，右边选电脑或开发板"
+    : !live
+      ? `对齐 ${current?.name ?? "a1"}：点开发板或电脑摄像头`
+      : passed
+        ? `${current?.name} 通过，已存 ${shotName("b", Math.max(0, saved.length - 1))}`
+        : command?.cues.join(" · ") || "继续对齐";
 
   return (
     <div className="apple-app">
@@ -660,91 +805,169 @@ export function FlyvisionWorkbench() {
           <Link href="/flyvision/plan">计划</Link>
           <Link href="/yunjing">云径</Link>
         </nav>
-        <span
-          className={`apple-dot${modelState === "ready" ? " ready" : ""}${
-            modelState === "error" ? " bad" : ""
-          }`}
-        >
+        <span className={`apple-dot${modelState === "ready" ? " ready" : ""}${modelState === "error" ? " bad" : ""}`}>
           <i />
-          {modelState === "loading"
-            ? "YOLOv8n 加载中"
-            : modelState === "ready"
-              ? clipState === "ready"
-                ? "YOLO · CLIP · 伺服"
-                : "YOLOv8n · 占位伺服"
-              : "模型失败"}
+          {modelState === "loading" ? "YOLOv8n 加载中" : modelState === "ready" ? "本机 YOLO" : "模型失败"}
         </span>
       </header>
 
       <div className="apple-split">
         <section className="apple-pane">
-          <h2>参考</h2>
+          <h2>参考 a1…an</h2>
+          <div className="apple-tabs">
+            <button type="button" className={uploadKind === "image" ? "is-on" : ""} onClick={() => setUploadKind("image")}>
+              图片
+            </button>
+            <button type="button" className={uploadKind === "video" ? "is-on" : ""} onClick={() => setUploadKind("video")}>
+              视频 · {VIDEO_FPS} fps
+            </button>
+          </div>
           <div
             className="apple-well"
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
-              onUpload(event.dataTransfer.files[0]);
+              void onPick(event.dataTransfer.files);
             }}
           >
-            {uploadUrl ? (
+            {editing ? (
+              <FlyvisionCropEditor
+                src={editing.url}
+                title={editing.replaceIndex != null ? `重裁 ${shots[editing.replaceIndex]?.name ?? ""}` : `裁切 a${shots.length + 1}`}
+                defaultAspect={cropAspect}
+                onConfirm={(blob) => void confirmCrop(blob)}
+                onSkip={() => void skipCrop()}
+                onCancel={cancelCrop}
+              />
+            ) : current ? (
               <div className="apple-media">
-                <img src={uploadUrl} alt="" />
-                <Boxes dets={leftDets} primary={leftPrimary} />
+                <img src={current.url} alt={current.name} />
+                <Boxes dets={current.dets} primary={leftPrimary} />
+                <div className="apple-shot-tag">{current.name}</div>
               </div>
             ) : (
-              <button className="apple-drop" type="button" onClick={() => fileRef.current?.click()}>
-                <span>上传图片</span>
-                <em>识别主体，对照构图和占位</em>
+              <button className="apple-drop" type="button" onClick={() => fileRef.current?.click()} disabled={Boolean(extracting)}>
+                <span>{extracting || (uploadKind === "video" ? "上传视频" : "上传图片")}</span>
+                <em>
+                  {uploadKind === "video"
+                    ? `自动拆成 ${VIDEO_FPS} 帧/秒，最多 ${VIDEO_MAX_FRAMES} 帧`
+                    : "比例不同先裁切，确认后再比对"}
+                </em>
               </button>
             )}
           </div>
-          <Pills
-            dets={leftDets}
-            empty="还没有参考图"
-            onUpload={() => fileRef.current?.click()}
-            canUpload
-            labels={leftLabels}
-          />
+          <div className="apple-seq">
+            <button type="button" onClick={() => fileRef.current?.click()}>
+              {shots.length ? (uploadKind === "video" ? "换视频" : "加图片") : "上传"}
+            </button>
+            {current && !editing ? (
+              <button
+                type="button"
+                onClick={() => setEditing({ url: current.url, replaceIndex: shotIndex })}
+              >
+                裁切
+              </button>
+            ) : null}
+            {shots.map((shot, index) => (
+              <button
+                key={shot.name}
+                type="button"
+                className={`apple-seq-item${index === shotIndex ? " is-on" : ""}${saved.some((item) => item.refName === shot.name) ? " is-done" : ""}`}
+                onClick={() => setShotIndex(index)}
+              >
+                {shot.name}
+              </button>
+            ))}
+            <p className="apple-muted">
+              {current
+                ? `${current.name} · ${current.objects.length} 个物体 ≥1%`
+                : "还没有参考序列"}
+            </p>
+          </div>
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept={uploadKind === "video" ? "video/*" : "image/*"}
+            multiple={uploadKind === "image"}
             hidden
             onChange={(event) => {
-              onUpload(event.target.files?.[0]);
+              void onPick(event.target.files);
               event.target.value = "";
             }}
           />
         </section>
 
         <section className="apple-pane">
-          <h2>实拍</h2>
+          <h2>实拍 b1…bn</h2>
+          <div className="apple-tabs">
+            <button type="button" className={liveView === "video" ? "is-on" : ""} onClick={() => setLiveView("video")}>
+              视频
+            </button>
+            <button
+              type="button"
+              className={liveView === "frame" ? "is-on" : ""}
+              onClick={() => {
+                setLiveView("frame");
+                if (frameStillUrl) {
+                  return;
+                }
+                if (modelState === "error") {
+                  pushLog("ERR", "本机 YOLO 没起来，出不了帧");
+                  return;
+                }
+                if (modelState === "loading") {
+                  pushLog("ERR", "YOLO 还在加载，还没有帧");
+                  return;
+                }
+                if (!live) {
+                  pushLog("ERR", "没有接入摄像头，没有帧");
+                  return;
+                }
+                pushLog("ERR", "摄像头已开，但还没抓到 YOLO 帧");
+              }}
+            >
+              帧 · YOLO
+            </button>
+          </div>
           <div className="apple-well">
-            <div className={`apple-media${live ? "" : " is-idle"}`}>
+            <div className={`apple-media${live && liveView === "video" ? "" : " is-idle"}`}>
               <video ref={videoRef} muted playsInline hidden={liveKind !== "webcam"} />
               <img ref={mjpegRef} alt="" hidden={liveKind !== "esp-cam"} />
-              <Boxes dets={rightDets} primary={rightPrimary} />
-              {verdict?.geometry ? (
-                <div className={`apple-cue${go ? " go" : ""}`}>{verdict.geometry.summary}</div>
-              ) : live && modelState === "ready" && !rightDets.length ? (
-                <div className="apple-cue is-wait">YOLO 在看…把人放进画面</div>
-              ) : null}
+              {live && liveView === "video" && passed ? <div className="apple-ok">✓ {current?.name} 对齐</div> : null}
+              {live && liveView === "video" && !passed && command ? <div className="apple-cue">{command.cues.join(" · ")}</div> : null}
             </div>
-            {live ? null : (
-              <div className="apple-idle">
-                <button
-                  className="apple-drop"
-                  type="button"
-                  disabled={camBusy}
-                  onClick={() => void startCamera(cameraId || undefined)}
-                >
-                  <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
+            {liveView === "frame" ? (
+              frameStillUrl ? (
+                <div className="apple-media">
+                  <img src={frameStillUrl} alt="YOLO 帧" />
+                  <Boxes dets={frameDets} primary={framePrimary} />
+                  <div className="apple-shot-tag">帧 · YOLO</div>
+                  {passed ? <div className="apple-ok">✓ {current?.name} 对齐</div> : null}
+                  {!passed && live && command ? <div className="apple-cue">{command.cues.join(" · ")}</div> : null}
+                </div>
+              ) : (
+                <div className="apple-frame-empty">
+                  <span>还没有 YOLO 帧</span>
                   <em>
-                    {modelState === "loading"
-                      ? "YOLO 还在本地加载，可先开摄像头"
-                      : camError ?? "先看 YOLOv8 识别，再对参考图"}
+                    {modelState === "error"
+                      ? "本机 YOLO 没起来，失败已写进下面的监视器"
+                      : modelState === "loading"
+                        ? "YOLO 还在加载"
+                        : live
+                          ? "摄像头已开，正在抓第一帧。失败会报错"
+                          : "先切回视频，接入电脑或开发板"}
                   </em>
+                </div>
+              )
+            ) : live ? null : (
+              <div className="apple-idle apple-idle-grid">
+                <button className="apple-drop" type="button" disabled={camBusy} onClick={() => void startCamera(cameraId || undefined)}>
+                  <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
+                  <em>笔记本自带摄像头，先看构图</em>
+                </button>
+                <button className="apple-drop" type="button" disabled={camBusy} onClick={() => startEspCam()}>
+                  <span>{camBusy ? "连接开发板…" : "开发板摄像头"}</span>
+                  <em>加入 flyvision-cam 后点这里。走 /capture 静帧</em>
                 </button>
                 <form
                   className="apple-cam-url"
@@ -753,27 +976,21 @@ export function FlyvisionWorkbench() {
                     startEspCam();
                   }}
                 >
-                  <span>ESP32-CAM</span>
-                  <em>连上 flyvision-cam 后点连接。本地工作台走 /capture，YOLO 在这一页画框比对。</em>
+                  <span>开发板地址</span>
+                  <em>默认同源 /flyvision/cam/capture。不要开 Vercel。</em>
                   <div className="apple-cam-url-row">
                     <input
-                      type="url"
+                      type="text"
                       value={camUrl}
                       spellCheck={false}
-                      aria-label="ESP32-CAM MJPEG 地址"
-                      placeholder={LOCAL_CAM_CAPTURE_URL}
+                      aria-label="开发板 capture 地址"
                       onChange={(event) => setCamUrl(event.target.value)}
                     />
                     <button type="submit" disabled={camBusy}>
-                      {camBusy ? "连接中" : "连接"}
+                      接入开发板
                     </button>
                   </div>
-                  {mixedCam ? (
-                    <em>
-                      当前是 https，浏览器会拦 CAM 的 http 流。笔记本连上板子后用本地
-                      localhost 打开工作台。
-                    </em>
-                  ) : null}
+                  {mixedCam ? <em>当前是 https，会拦开发板。用 localhost。</em> : null}
                 </form>
               </div>
             )}
@@ -782,19 +999,9 @@ export function FlyvisionWorkbench() {
           <div className="apple-pills">
             {live ? (
               <>
-                <button type="button" onClick={stopLive}>
-                  关闭
-                </button>
+                <button type="button" onClick={stopLive}>关闭</button>
                 {liveKind === "webcam" && cameras.length > 1 ? (
-                  <select
-                    className="apple-cam-select"
-                    value={cameraId}
-                    onChange={(event) => {
-                      const next = event.target.value;
-                      setCameraId(next);
-                      void startCamera(next);
-                    }}
-                  >
+                  <select className="apple-cam-select" value={cameraId} onChange={(event) => void startCamera(event.target.value)}>
                     {cameras.map((item, index) => (
                       <option key={item.deviceId || String(index)} value={item.deviceId}>
                         {item.label || `摄像头 ${index + 1}`}
@@ -802,132 +1009,145 @@ export function FlyvisionWorkbench() {
                     ))}
                   </select>
                 ) : null}
-                {liveKind === "esp-cam" ? (
-                  <span className="apple-pill">
-                    CAM
-                    <em>{camUrl}</em>
-                  </span>
-                ) : null}
-                <button type="button" disabled={!live} onClick={snapLiveAsReference}>
-                  把这帧当参考
-                </button>
+                <span className="apple-pill">{liveKind === "esp-cam" ? "开发板" : "电脑"}</span>
               </>
             ) : (
-              <button
-                type="button"
-                disabled={camBusy}
-                onClick={() => void startCamera(cameraId || undefined)}
-              >
-                {camBusy ? "打开中" : "开启摄像头"}
-              </button>
+              <p className="apple-muted">{camError ?? "两个入口：电脑，或开发板"}</p>
             )}
-            {rightLabels ? <span className="apple-pill">{formatShotLabels(rightLabels)}</span> : null}
-            {rightDets.length ? (
-              rightDets.map((det, index) => (
-                <span className="apple-pill" key={`${det.label}-${index}`}>
-                  {zh(det.label)}
-                  <em>{pillCue(det)}</em>
-                </span>
-              ))
-            ) : (
-              <p className="apple-muted">
-                {live
-                  ? "画面里还没有主体"
-                  : camError ?? "电脑摄像头，或 ESP32-CAM 推流"}
-              </p>
-            )}
+            {rightObjects.map((item, index) => (
+              <span className="apple-pill" key={`${item.label}-${index}`}>
+                {zh(item.label)}
+                <em>
+                  {item.xyxy.x1.toFixed(2)},{item.xyxy.y1.toFixed(2)}–{item.xyxy.x2.toFixed(2)},{item.xyxy.y2.toFixed(2)}
+                </em>
+              </span>
+            ))}
           </div>
         </section>
       </div>
 
       <footer className="apple-meter">
-        <div className={`apple-status${go ? " go" : ""}`}>{statusText}</div>
+        <div className={`apple-status${passed || done ? " go" : ""}`}>{statusText}</div>
         <dl>
           <div>
-            <dt>参考主体</dt>
-            <dd>{spatialLine(leftPrimary) ?? "—"}</dd>
+            <dt>当前</dt>
+            <dd>{current ? `${current.name} → ${shotName("b", shotIndex)}` : "—"}</dd>
           </div>
           <div>
-            <dt>实拍主体</dt>
-            <dd>{spatialLine(rightPrimary) ?? "—"}</dd>
+            <dt>角点相对误差</dt>
+            <dd>{match ? `${(match.maxAbsRel * 100).toFixed(1)}% / 10%` : "—"}</dd>
           </div>
           <div>
-            <dt>相似度</dt>
-            <dd>
-              {verdict
-                ? `${verdict.similarity.toFixed(2)}${
-                    verdict.clip !== null ? ` · CLIP ${verdict.clip.toFixed(2)}` : ""
-                  }`
-                : "—"}
-            </dd>
+            <dt>角点方差</dt>
+            <dd>{match && Number.isFinite(match.variance) ? match.variance.toFixed(4) : "—"}</dd>
           </div>
           <div>
-            <dt>占位 / 朝向</dt>
-            <dd>
-              {verdict?.geometry
-                ? `${verdict.geometry.summary}${verdict.geometry.geometryOk ? " · 在带内" : ""}`
-                : "—"}
-            </dd>
-          </div>
-          <div>
-            <dt>针孔粗估</dt>
-            <dd>{verdict?.metersHint ?? "—"}</dd>
+            <dt>无人机指令</dt>
+            <dd>{passed ? "保持" : command?.text ?? "—"}</dd>
           </div>
         </dl>
         <div className="apple-cal">
           <label>
             <span>电脑视场 {webcamHfovDeg}°</span>
-            <input
-              type="range"
-              min={50}
-              max={90}
-              step={1}
-              value={webcamHfovDeg}
-              aria-label="电脑摄像头水平视场"
-              onChange={(event) => setWebcamHfovDeg(Number(event.target.value))}
-            />
+            <input type="range" min={50} max={90} value={webcamHfovDeg} onChange={(event) => setWebcamHfovDeg(Number(event.target.value))} />
           </label>
           <label>
-            <span>CAM 视场 {camHfovDeg}°（OV2640）</span>
-            <input
-              type="range"
-              min={50}
-              max={90}
-              step={1}
-              value={camHfovDeg}
-              aria-label="ESP32-CAM 水平视场"
-              onChange={(event) => setCamHfovDeg(Number(event.target.value))}
-            />
+            <span>开发板视场 {camHfovDeg}°</span>
+            <input type="range" min={50} max={90} value={camHfovDeg} onChange={(event) => setCamHfovDeg(Number(event.target.value))} />
           </label>
           <label>
             <span>身高 {personHeightM.toFixed(2)} m</span>
-            <input
-              type="range"
-              min={150}
-              max={190}
-              step={1}
-              value={Math.round(personHeightM * 100)}
-              aria-label="主体身高"
-              onChange={(event) => setPersonHeightM(Number(event.target.value) / 100)}
-            />
+            <input type="range" min={150} max={190} value={Math.round(personHeightM * 100)} onChange={(event) => setPersonHeightM(Number(event.target.value) / 100)} />
           </label>
-          <label className="apple-check">
-            <input
-              type="checkbox"
-              checked={rejectPartial}
-              onChange={(event) => setRejectPartial(event.target.checked)}
-            />
-            截断框不计针孔粗估
-          </label>
+          <button type="button" className="apple-pack" disabled={!saved.length || Boolean(extracting)} onClick={() => void exportPack()}>
+            {extracting || (sourceKind === "video" ? "打包成视频" : "打包成图片")}
+          </button>
         </div>
         <p className="apple-muted apple-hint">
-          可以拍 = CLIP 像参考 + 框占画面比例在带内 + 偏左偏右偏上偏下在带内。针孔米数只是旁注，不是
-          RTK，也不开快门。
+          通过条件：每个 ≥1% 物体的 x1/y1/x2/y2 相对参考框误差 ≤10%，且角点相对误差方差 ≤0.0025（约标准差 5%，说明不是一个物体对、另一个拧着）。连过 3 帧才打勾。米/度是视觉伺服，不是 RTK。
         </p>
-        {detectError ? <p className="apple-error">{detectError}</p> : null}
+        <section className="apple-monitor" aria-label="串口监视器">
+          <div className="apple-monitor-bar">
+            <strong>串口监视器</strong>
+            <span title={detectError ?? ""}>{logs.filter((line) => line.level === "ERR").length} ERR</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLogs([]);
+                setDetectError(null);
+                logThrottleRef.current = {};
+              }}
+            >
+              清空
+            </button>
+          </div>
+          <div className="apple-monitor-log" role="log">
+            {logs.length ? (
+              logs.map((line) => (
+                <div key={line.id} className={`apple-monitor-line is-${line.level}`}>
+                  <time>[{formatMonitorTime(line.t)}]</time>
+                  <b>{line.level}</b>
+                  <span>{line.msg}</span>
+                </div>
+              ))
+            ) : (
+              <div className="apple-monitor-line is-INFO">还没有日志</div>
+            )}
+            <div ref={logEndRef} />
+          </div>
+        </section>
+        <aside className={`apple-gallery${galleryOpen ? " is-open" : ""}`}>
+          <button type="button" onClick={() => setGalleryOpen((open) => !open)}>
+            已存 {saved.length}/{shots.length || 0}
+          </button>
+          {galleryOpen ? (
+            <div className="apple-gallery-row">
+              {saved.length ? (
+                saved.map((item) => (
+                  <figure key={item.name}>
+                    <img src={item.url} alt={item.name} />
+                    <figcaption>
+                      {item.name}
+                      <em>{item.refName}</em>
+                    </figcaption>
+                  </figure>
+                ))
+              ) : (
+                <p className="apple-muted">对齐成功的帧会出现在这里</p>
+              )}
+            </div>
+          ) : null}
+        </aside>
       </footer>
     </div>
   );
+}
+
+function snapshotLiveFrame(
+  frame: { source: CanvasImageSource; width: number; height: number },
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(frame.source, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob || blob.size < 200) {
+          resolve(null);
+          return;
+        }
+        resolve(URL.createObjectURL(blob));
+      }, "image/jpeg", 0.88);
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 function liveFrame(
@@ -950,32 +1170,16 @@ function liveFrame(
   return null;
 }
 
-function pillCue(det: RichDet): string {
-  const crop = det.spatial ? cropLabel(det.spatial.crop) : "";
-  const heading = det.spatial ? headingLabel(det.spatial.heading) : "";
-  const bits = [crop, heading].filter(Boolean);
-  return bits.length ? bits.join(" · ") : `${(det.score * 100).toFixed(0)}%`;
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-function spatialLine(det: RichDet | null): string | null {
-  if (!det) {
-    return null;
-  }
-  const name = zh(det.label);
-  if (!det.spatial) {
-    return name;
-  }
-  const crop = cropLabel(det.spatial.crop);
-  return `${name}${crop ? `  ${crop}` : ""}  ${headingLabel(det.spatial.heading)}`;
-}
-
-function Boxes({
-  dets,
-  primary,
-}: {
-  dets: RichDet[];
-  primary: RichDet | null;
-}) {
+function Boxes({ dets, primary }: { dets: RichDet[]; primary: RichDet | null }) {
   return (
     <>
       {dets.map((det, index) => (
@@ -989,47 +1193,9 @@ function Boxes({
             height: `${det.box.h * 100}%`,
           }}
         >
-          <b>
-            {zh(det.label)}
-            {det.spatial ? `  ${headingLabel(det.spatial.heading)}` : ""}
-          </b>
+          <b>{zh(det.label)}</b>
         </span>
       ))}
     </>
-  );
-}
-
-function Pills({
-  dets,
-  empty,
-  onUpload,
-  canUpload,
-  labels,
-}: {
-  dets: RichDet[];
-  empty: string;
-  onUpload?: () => void;
-  canUpload?: boolean;
-  labels?: ShotLabelSet | null;
-}) {
-  return (
-    <div className="apple-pills">
-      {canUpload ? (
-        <button type="button" onClick={onUpload}>
-          {dets.length ? "换图" : "上传"}
-        </button>
-      ) : null}
-      {labels ? <span className="apple-pill">{formatShotLabels(labels)}</span> : null}
-      {dets.length ? (
-        dets.map((det, index) => (
-          <span className="apple-pill" key={`${det.label}-${index}`}>
-            {zh(det.label)}
-            <em>{pillCue(det)}</em>
-          </span>
-        ))
-      ) : (
-        <p className="apple-muted">{empty}</p>
-      )}
-    </div>
   );
 }
