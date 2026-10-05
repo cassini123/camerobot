@@ -4,6 +4,14 @@ export const FLYVISION_READY_URL = "/api/flyvision/ready";
 export const FLYVISION_DETECT_URL = "/api/flyvision/detect";
 export const FLYVISION_CLIP_URL = "/api/flyvision/clip";
 
+function float32Body(tensor: Float32Array): ArrayBuffer {
+  const copy = new ArrayBuffer(tensor.byteLength);
+  new Uint8Array(copy).set(
+    new Uint8Array(tensor.buffer, tensor.byteOffset, tensor.byteLength),
+  );
+  return copy;
+}
+
 export async function postFloat32(
   url: string,
   tensor: Float32Array,
@@ -15,7 +23,7 @@ export async function postFloat32(
       "content-type": "application/octet-stream",
       ...headers,
     },
-    body: new Blob([tensor], { type: "application/octet-stream" }),
+    body: float32Body(tensor),
   });
   if (!res.ok) {
     const text = await res.text();
