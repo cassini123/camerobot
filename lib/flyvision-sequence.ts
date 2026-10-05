@@ -141,6 +141,24 @@ export function pairObjects(refs: SceneObject[], lives: SceneObject[]): Sequence
   };
 }
 
+export function matchFailText(match: SequenceMatch): string {
+  if (match.ok) {
+    return "";
+  }
+  const parts: string[] = [];
+  if (match.missing.length) {
+    parts.push(`缺 ${match.missing.map((item) => item.label).join("、")}`);
+  }
+  if (!match.cornersOk && Number.isFinite(match.maxAbsRel)) {
+    parts.push(`角点 ${(match.maxAbsRel * 100).toFixed(1)}% > 10%`);
+  }
+  if (!match.varianceOk) {
+    const varianceText = Number.isFinite(match.variance) ? match.variance.toFixed(4) : "inf";
+    parts.push(`方差 ${varianceText} > 0.0025`);
+  }
+  return parts.join(" · ") || "比对未过";
+}
+
 export function droneCommand(
   refs: SceneObject[],
   lives: SceneObject[],

@@ -5,6 +5,7 @@ import {
   boxToXyxy,
   cornerRelErrors,
   droneCommand,
+  matchFailText,
   pairObjects,
   sceneObjects,
   shotName,
@@ -67,6 +68,21 @@ describe("10% corner + variance gate", () => {
   it("names shots a1 / b2", () => {
     expect(shotName("a", 0)).toBe("a1");
     expect(shotName("b", 1)).toBe("b2");
+  });
+
+  it("explains a failed match instead of staying silent", () => {
+    const refs = sceneObjects([det("person", 0.3, 0.2, 0.2, 0.5), det("chair", 0.7, 0.4, 0.2, 0.3)]);
+    const lives = sceneObjects([det("person", 0.5, 0.2, 0.2, 0.5)]);
+    const match = pairObjects(refs, lives);
+    expect(match.ok).toBe(false);
+    expect(matchFailText(match)).toMatch(/缺 chair/);
+    expect(matchFailText(match)).toMatch(/角点|方差/);
+  });
+
+  it("returns an empty fail text when the pair already passed", () => {
+    const refs = sceneObjects([det("person", 0.3, 0.2, 0.2, 0.5)]);
+    const lives = sceneObjects([det("person", 0.31, 0.21, 0.2, 0.5)]);
+    expect(matchFailText(pairObjects(refs, lives))).toBe("");
   });
 });
 

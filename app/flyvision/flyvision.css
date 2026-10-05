@@ -473,6 +473,105 @@
   font-size: 13px;
 }
 
+.apple-frame-empty {
+  width: 100%;
+  min-height: 280px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.apple-frame-empty span {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.apple-frame-empty em {
+  font-style: normal;
+  color: #86868b;
+  font-size: 13px;
+}
+
+.apple-monitor {
+  flex: 1 1 100%;
+  background: #111;
+  color: #d4d4d4;
+  border-radius: 14px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.apple-monitor-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  background: #1c1c1e;
+  color: #8e8e93;
+}
+
+.apple-monitor-bar strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.apple-monitor-bar span {
+  margin-right: auto;
+}
+
+.apple-monitor-bar button {
+  border: 0;
+  background: #2c2c2e;
+  color: #f5f5f7;
+  border-radius: 980px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.apple-monitor-log {
+  height: 148px;
+  overflow: auto;
+  padding: 8px 12px 10px;
+  line-height: 1.5;
+}
+
+.apple-monitor-line {
+  display: grid;
+  grid-template-columns: 108px 36px minmax(0, 1fr);
+  gap: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.apple-monitor-line time {
+  color: #8e8e93;
+}
+
+.apple-monitor-line b {
+  font-weight: 700;
+}
+
+.apple-monitor-line.is-ERR,
+.apple-monitor-line.is-ERR b {
+  color: #ff453a;
+}
+
+.apple-monitor-line.is-OK,
+.apple-monitor-line.is-OK b {
+  color: #30d158;
+}
+
+.apple-monitor-line.is-INFO,
+.apple-monitor-line.is-INFO b {
+  color: #64d2ff;
+}
+
 .apple-cam-err {
   position: absolute;
   left: 18px;

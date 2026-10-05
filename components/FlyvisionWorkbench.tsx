@@ -7,10 +7,18 @@ import { getClipSession } from "@/lib/clip-embed";
 import { imageAspect } from "@/lib/flyvision-crop";
 import { extractVideoFrames, recordFrameVideo } from "@/lib/flyvision-frames";
 import {
+  appendMonitorLine,
+  formatMonitorTime,
+  shouldThrottle,
+  type MonitorLevel,
+  type MonitorLine,
+} from "@/lib/flyvision-monitor";
+import {
   STABLE_PASS_FRAMES,
   VIDEO_FPS,
   VIDEO_MAX_FRAMES,
   droneCommand,
+  matchFailText,
   pairObjects,
   sceneObjects,
   shotName,
@@ -171,6 +179,9 @@ export function FlyvisionWorkbench() {
   const [camError, setCamError] = useState<string | null>(null);
   const [liveKind, setLiveKind] = useState<LiveSource>("idle");
   const [liveView, setLiveView] = useState<LiveView>("video");
+  const [frameStillUrl, setFrameStillUrl] = useState<string | null>(null);
+  const [frameDets, setFrameDets] = useState<RichDet[]>([]);
+  const [logs, setLogs] = useState<MonitorLine[]>([]);
   const [camBusy, setCamBusy] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState("");
@@ -194,8 +205,12 @@ export function FlyvisionWorkbench() {
   const liveKindRef = useRef(liveKind);
   const camPollRef = useRef(false);
   const camBlobRef = useRef<string | null>(null);
+  const frameStillRef = useRef<string | null>(null);
   const passCountRef = useRef(0);
   const savingRef = useRef(false);
+  const logIdRef = useRef(0);
+  const logThrottleRef = useRef<Record<string, number>>({});
+  const logEndRef = useRef<HTMLDivElement | null>(null);
   liveKindRef.current = liveKind;
   const live = liveKind !== "idle";
   const mixedCam = pageHttps && httpsBlocksHttpStream("https:", camUrl);
@@ -210,11 +225,33 @@ export function FlyvisionWorkbench() {
   const cropAspect = shots[0]?.aspect ?? 4 / 3;
   const leftPrimary = current ? (primarySubject(current.dets) as RichDet | null) : null;
   const rightPrimary = primarySubject(rightDets) as RichDet | null;
+  const framePrimary = primarySubject(frameDets) as RichDet | null;
   const rightObjects = useMemo(() => sceneObjects(rightDets), [rightDets]);
+
+  const pushLog = useCallback((level: MonitorLevel, msg: string, throttleMs = 0) => {
+    const now = Date.now();
+    const key = `${level}:${msg}`;
+    if (throttleMs > 0 && shouldThrottle(logThrottleRef.current[key], now, throttleMs)) {
+      return;
+    }
+    if (throttleMs > 0) {
+      logThrottleRef.current[key] = now;
+    }
+    const line: MonitorLine = { id: ++logIdRef.current, t: now, level, msg };
+    setLogs((list) => appendMonitorLine(list, line));
+    if (level === "ERR") {
+      setDetectError(msg);
+    }
+  }, []);
 
   useEffect(() => {
     setPageHttps(window.location.protocol === "https:");
-  }, []);
+    pushLog("INFO", "监视器已开。失败会留在这里，不会只闪一下");
+  }, [pushLog]);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: "end" });
+  }, [logs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,19 +259,20 @@ export function FlyvisionWorkbench() {
       .then(() => {
         if (!cancelled) {
           setModelState("ready");
+          pushLog("OK", "本机 YOLO 就绪");
         }
       })
       .catch((err: Error) => {
         if (!cancelled) {
           setModelState("error");
-          setDetectError(err.message || "本机 YOLO 没起来");
+          pushLog("ERR", err.message || "本机 YOLO 没起来");
         }
       });
     void getClipSession().catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [pushLog]);
 
   const analyzeUrl = useCallback(async (url: string, name: string): Promise<RefShot> => {
     const image = await loadHtmlImage(url);
@@ -256,14 +294,14 @@ export function FlyvisionWorkbench() {
       .filter((file) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp)$/i.test(file.name))
       .map((file) => ({ url: URL.createObjectURL(file) }));
     if (!queued.length) {
-      setDetectError("没有可用的图片");
+      pushLog("ERR", "没有可用的图片");
       return;
     }
     setSourceKind("image");
     setPendingStills(queued.slice(1));
     setEditing(queued[0]);
     setDetectError(null);
-  }, []);
+  }, [pushLog]);
 
   const finishEditing = useCallback(
     async (sourceUrl: string, replaceIndex?: number) => {
@@ -283,8 +321,9 @@ export function FlyvisionWorkbench() {
           setShotIndex(shots.length);
         }
         setDetectError(null);
+        pushLog("OK", replaceIndex != null ? `重裁 ${shots[replaceIndex]?.name ?? "参考图"} 已识别` : `${shotName("a", shots.length)} 已识别`);
       } catch (err) {
-        setDetectError(err instanceof Error ? err.message : "参考图失败");
+        pushLog("ERR", err instanceof Error ? err.message : "参考图失败");
         if (sourceUrl.startsWith("blob:")) {
           URL.revokeObjectURL(sourceUrl);
         }
@@ -292,7 +331,7 @@ export function FlyvisionWorkbench() {
         setExtracting("");
       }
     },
-    [analyzeUrl, shots],
+    [analyzeUrl, shots, pushLog],
   );
 
   const advanceQueue = useCallback(() => {
@@ -360,21 +399,23 @@ export function FlyvisionWorkbench() {
           prev.forEach((item) => URL.revokeObjectURL(item.url));
           return [];
         });
-        setDetectError(
-          frames.length >= VIDEO_MAX_FRAMES
-            ? `视频按 ${VIDEO_FPS} fps 取了前 ${frames.length} 帧`
-            : null,
-        );
+        if (frames.length >= VIDEO_MAX_FRAMES) {
+          pushLog("INFO", `视频按 ${VIDEO_FPS} fps 取了前 ${frames.length} 帧`);
+        } else {
+          pushLog("OK", `视频抽出 ${frames.length} 帧`);
+        }
+        setDetectError(null);
       } catch (err) {
-        setDetectError(err instanceof Error ? err.message : "视频抽帧失败");
+        pushLog("ERR", err instanceof Error ? err.message : "视频抽帧失败");
       } finally {
         setExtracting("");
       }
     },
-    [analyzeUrl, shots],
+    [analyzeUrl, shots, pushLog],
   );
 
   const stopLive = useCallback(() => {
+    pushLog("INFO", "关闭摄像头");
     camPollRef.current = false;
     if (camBlobRef.current) {
       URL.revokeObjectURL(camBlobRef.current);
@@ -398,11 +439,13 @@ export function FlyvisionWorkbench() {
     setCommand(null);
     setPassed(false);
     setCamBusy(false);
-  }, []);
+  }, [pushLog]);
 
   const startCamera = useCallback(async (deviceId?: string) => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCamError("这个浏览器不能开摄像头，换 Chrome 或 Safari");
+      const text = "这个浏览器不能开摄像头，换 Chrome 或 Safari";
+      setCamError(text);
+      pushLog("ERR", text);
       return;
     }
     setCamBusy(true);
@@ -436,7 +479,9 @@ export function FlyvisionWorkbench() {
     if (!stream) {
       setCamBusy(false);
       setLiveKind("idle");
-      setCamError(camErrorText(lastErr));
+      const text = camErrorText(lastErr);
+      setCamError(text);
+      pushLog("ERR", text);
       return;
     }
     streamRef.current = stream;
@@ -464,7 +509,8 @@ export function FlyvisionWorkbench() {
     setLiveView("video");
     setLiveKind("webcam");
     setCamBusy(false);
-  }, []);
+    pushLog("OK", "电脑摄像头已开");
+  }, [pushLog]);
 
   const startEspCam = useCallback(() => {
     const url = camStillUrl(camUrl || LOCAL_CAM_CAPTURE_URL);
@@ -477,7 +523,9 @@ export function FlyvisionWorkbench() {
     }
     const mjpeg = mjpegRef.current;
     if (!mjpeg) {
-      setCamError("画面还没准备好，再点一次开发板");
+      const text = "画面还没准备好，再点一次开发板";
+      setCamError(text);
+      pushLog("ERR", text);
       return;
     }
     camPollRef.current = true;
@@ -507,9 +555,13 @@ export function FlyvisionWorkbench() {
               URL.revokeObjectURL(prev);
             }
             setCamBusy(false);
-            setLiveView("video");
-            setLiveKind("esp-cam");
             setCamError(null);
+            if (liveKindRef.current !== "esp-cam") {
+              liveKindRef.current = "esp-cam";
+              setLiveView("video");
+              setLiveKind("esp-cam");
+              pushLog("OK", "开发板已接入");
+            }
           };
           img.src = obj;
         } catch (err) {
@@ -519,26 +571,32 @@ export function FlyvisionWorkbench() {
           if (liveKindRef.current !== "esp-cam") {
             setCamBusy(false);
             setLiveKind("idle");
-            setCamError(
+            const text =
               pageHttps && !url.startsWith("/")
                 ? "https 拦开发板。用 http://localhost:3000/flyvision，并加入 flyvision-cam"
                 : err instanceof Error
                   ? err.message
-                  : "连不上开发板。加入 flyvision-cam，再用本机 localhost",
-            );
+                  : "连不上开发板。加入 flyvision-cam，再用本机 localhost";
+            setCamError(text);
+            pushLog("ERR", text);
             camPollRef.current = false;
             break;
           }
+          pushLog("ERR", err instanceof Error ? err.message : "开发板掉帧", 2000);
         }
         await new Promise((resolve) => window.setTimeout(resolve, 480));
       }
     };
     void loop();
-  }, [camUrl, pageHttps]);
+  }, [camUrl, pageHttps, pushLog]);
 
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (frameStillRef.current) {
+        URL.revokeObjectURL(frameStillRef.current);
+        frameStillRef.current = null;
+      }
     };
   }, []);
 
@@ -548,12 +606,24 @@ export function FlyvisionWorkbench() {
     }
     let timer = 0;
     let stopped = false;
+    let blank = 0;
     const tick = async () => {
       const frame = liveFrame(liveKindRef.current, videoRef.current, mjpegRef.current);
-      if (stopped || !frame) {
+      if (stopped) {
+        return;
+      }
+      if (!frame) {
+        blank += 1;
+        if (blank === 10) {
+          pushLog(
+            "ERR",
+            liveKindRef.current === "webcam" ? "电脑摄像头没有画面，出不了帧" : "开发板没有 JPEG，出不了帧",
+          );
+        }
         timer = window.setTimeout(() => void tick(), 360);
         return;
       }
+      blank = 0;
       try {
         const raw = await detectYolo(frame.source, frame.width, frame.height);
         const tracked = trackerRef.current.push(raw);
@@ -562,12 +632,33 @@ export function FlyvisionWorkbench() {
           aspect: frame.width / frame.height,
           ...liveSpatialOptsRef.current,
         });
-        if (!stopped) {
-          setRightDets(dets);
+        if (stopped) {
+          return;
+        }
+        setRightDets(dets);
+        if (dets.length === 0) {
+          pushLog("ERR", "这一帧 YOLO 没有检出 ≥1% 物体", 2000);
+        }
+        const still = await snapshotLiveFrame(frame);
+        if (stopped) {
+          if (still) {
+            URL.revokeObjectURL(still);
+          }
+          return;
+        }
+        if (!still) {
+          pushLog("ERR", "抓帧失败，这一帧没法冻结", 2000);
+        } else {
+          if (frameStillRef.current) {
+            URL.revokeObjectURL(frameStillRef.current);
+          }
+          frameStillRef.current = still;
+          setFrameStillUrl(still);
+          setFrameDets(dets);
         }
       } catch (err) {
         if (!stopped) {
-          setDetectError(err instanceof Error ? err.message : "实拍识别失败");
+          pushLog("ERR", err instanceof Error ? err.message : "实拍识别失败");
         }
       }
       timer = window.setTimeout(() => void tick(), 360);
@@ -579,7 +670,7 @@ export function FlyvisionWorkbench() {
       liveSmoothRef.current.reset();
       trackerRef.current.reset();
     };
-  }, [liveKind, modelState]);
+  }, [liveKind, modelState, pushLog]);
 
   useEffect(() => {
     if (!current || !live) {
@@ -600,12 +691,18 @@ export function FlyvisionWorkbench() {
     setCommand(next.ok ? null : cmd);
     if (next.ok) {
       passCountRef.current += 1;
-      setPassed(passCountRef.current >= STABLE_PASS_FRAMES);
+      const stable = passCountRef.current >= STABLE_PASS_FRAMES;
+      setPassed(stable);
+      if (passCountRef.current === STABLE_PASS_FRAMES) {
+        pushLog("OK", `${current.name} 对齐通过`);
+      }
     } else {
       passCountRef.current = 0;
       setPassed(false);
+      const fail = matchFailText(next);
+      pushLog("ERR", `${current.name} 比对失败${fail ? ` ${fail}` : ""}`, 1600);
     }
-  }, [current, rightObjects, live, liveKind, hfovDeg, rightPrimary]);
+  }, [current, rightObjects, live, liveKind, hfovDeg, rightPrimary, pushLog]);
 
   useEffect(() => {
     if (!passed || !current || savingRef.current) {
@@ -658,7 +755,7 @@ export function FlyvisionWorkbench() {
     if (uploadKind === "video") {
       const video = list.find((file) => file.type.startsWith("video/") || /\.(mp4|mov|webm|m4v)$/i.test(file.name));
       if (!video) {
-        setDetectError("选一个视频");
+        pushLog("ERR", "选一个视频");
         return;
       }
       await addVideoFile(video);
@@ -669,7 +766,7 @@ export function FlyvisionWorkbench() {
 
   async function exportPack() {
     if (!saved.length) {
-      setDetectError("还没有保存的 b 帧");
+      pushLog("ERR", "还没有保存的 b 帧");
       return;
     }
     if (sourceKind === "video") {
@@ -677,14 +774,16 @@ export function FlyvisionWorkbench() {
       try {
         const video = await recordFrameVideo(saved.map((item) => item.blob), VIDEO_FPS);
         downloadBlob(video, "flyvision-b.webm");
+        pushLog("OK", "已打包视频 flyvision-b.webm");
       } catch (err) {
-        setDetectError(err instanceof Error ? err.message : "导出视频失败");
+        pushLog("ERR", err instanceof Error ? err.message : "导出视频失败");
       } finally {
         setExtracting("");
       }
       return;
     }
     saved.forEach((item) => downloadBlob(item.blob, `${item.name}.jpg`));
+    pushLog("OK", `已打包 ${saved.length} 张 b 帧`);
   }
 
   const done = shots.length > 0 && saved.length >= shots.length;
@@ -800,25 +899,67 @@ export function FlyvisionWorkbench() {
 
         <section className="apple-pane">
           <h2>实拍 b1…bn</h2>
-          {live ? (
-            <div className="apple-tabs">
-              <button type="button" className={liveView === "video" ? "is-on" : ""} onClick={() => setLiveView("video")}>
-                视频
-              </button>
-              <button type="button" className={liveView === "frame" ? "is-on" : ""} onClick={() => setLiveView("frame")}>
-                帧 · YOLO
-              </button>
-            </div>
-          ) : null}
+          <div className="apple-tabs">
+            <button type="button" className={liveView === "video" ? "is-on" : ""} onClick={() => setLiveView("video")}>
+              视频
+            </button>
+            <button
+              type="button"
+              className={liveView === "frame" ? "is-on" : ""}
+              onClick={() => {
+                setLiveView("frame");
+                if (frameStillUrl) {
+                  return;
+                }
+                if (modelState === "error") {
+                  pushLog("ERR", "本机 YOLO 没起来，出不了帧");
+                  return;
+                }
+                if (modelState === "loading") {
+                  pushLog("ERR", "YOLO 还在加载，还没有帧");
+                  return;
+                }
+                if (!live) {
+                  pushLog("ERR", "没有接入摄像头，没有帧");
+                  return;
+                }
+                pushLog("ERR", "摄像头已开，但还没抓到 YOLO 帧");
+              }}
+            >
+              帧 · YOLO
+            </button>
+          </div>
           <div className="apple-well">
-            <div className={`apple-media${live ? "" : " is-idle"}`}>
+            <div className={`apple-media${live && liveView === "video" ? "" : " is-idle"}`}>
               <video ref={videoRef} muted playsInline hidden={liveKind !== "webcam"} />
               <img ref={mjpegRef} alt="" hidden={liveKind !== "esp-cam"} />
-              {liveView === "frame" ? <Boxes dets={rightDets} primary={rightPrimary} /> : null}
-              {passed ? <div className="apple-ok">✓ {current?.name} 对齐</div> : null}
-              {!passed && live && command ? <div className="apple-cue">{command.cues.join(" · ")}</div> : null}
+              {live && liveView === "video" && passed ? <div className="apple-ok">✓ {current?.name} 对齐</div> : null}
+              {live && liveView === "video" && !passed && command ? <div className="apple-cue">{command.cues.join(" · ")}</div> : null}
             </div>
-            {live ? null : (
+            {liveView === "frame" ? (
+              frameStillUrl ? (
+                <div className="apple-media">
+                  <img src={frameStillUrl} alt="YOLO 帧" />
+                  <Boxes dets={frameDets} primary={framePrimary} />
+                  <div className="apple-shot-tag">帧 · YOLO</div>
+                  {passed ? <div className="apple-ok">✓ {current?.name} 对齐</div> : null}
+                  {!passed && live && command ? <div className="apple-cue">{command.cues.join(" · ")}</div> : null}
+                </div>
+              ) : (
+                <div className="apple-frame-empty">
+                  <span>还没有 YOLO 帧</span>
+                  <em>
+                    {modelState === "error"
+                      ? "本机 YOLO 没起来，失败已写进下面的监视器"
+                      : modelState === "loading"
+                        ? "YOLO 还在加载"
+                        : live
+                          ? "摄像头已开，正在抓第一帧。失败会报错"
+                          : "先切回视频，接入电脑或开发板"}
+                  </em>
+                </div>
+              )
+            ) : live ? null : (
               <div className="apple-idle apple-idle-grid">
                 <button className="apple-drop" type="button" disabled={camBusy} onClick={() => void startCamera(cameraId || undefined)}>
                   <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
@@ -925,7 +1066,36 @@ export function FlyvisionWorkbench() {
         <p className="apple-muted apple-hint">
           通过条件：每个 ≥1% 物体的 x1/y1/x2/y2 相对参考框误差 ≤10%，且角点相对误差方差 ≤0.0025（约标准差 5%，说明不是一个物体对、另一个拧着）。连过 3 帧才打勾。米/度是视觉伺服，不是 RTK。
         </p>
-        {detectError ? <p className="apple-error">{detectError}</p> : null}
+        <section className="apple-monitor" aria-label="串口监视器">
+          <div className="apple-monitor-bar">
+            <strong>串口监视器</strong>
+            <span title={detectError ?? ""}>{logs.filter((line) => line.level === "ERR").length} ERR</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLogs([]);
+                setDetectError(null);
+                logThrottleRef.current = {};
+              }}
+            >
+              清空
+            </button>
+          </div>
+          <div className="apple-monitor-log" role="log">
+            {logs.length ? (
+              logs.map((line) => (
+                <div key={line.id} className={`apple-monitor-line is-${line.level}`}>
+                  <time>[{formatMonitorTime(line.t)}]</time>
+                  <b>{line.level}</b>
+                  <span>{line.msg}</span>
+                </div>
+              ))
+            ) : (
+              <div className="apple-monitor-line is-INFO">还没有日志</div>
+            )}
+            <div ref={logEndRef} />
+          </div>
+        </section>
         <aside className={`apple-gallery${galleryOpen ? " is-open" : ""}`}>
           <button type="button" onClick={() => setGalleryOpen((open) => !open)}>
             已存 {saved.length}/{shots.length || 0}
@@ -951,6 +1121,33 @@ export function FlyvisionWorkbench() {
       </footer>
     </div>
   );
+}
+
+function snapshotLiveFrame(
+  frame: { source: CanvasImageSource; width: number; height: number },
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(frame.source, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob || blob.size < 200) {
+          resolve(null);
+          return;
+        }
+        resolve(URL.createObjectURL(blob));
+      }, "image/jpeg", 0.88);
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 function liveFrame(
