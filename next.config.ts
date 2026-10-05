@@ -35,9 +35,7 @@ const nextConfig: NextConfig = {
     "@manycore/aholo-sdk-asset",
     "@manycore/aholo-sdk-world",
     "@manycore/aholo-sdk-lux3d",
-    "onnxruntime-web",
   ],
-  serverExternalPackages: ["onnxruntime-web"],
   webpack: (config) => {
     config.experiments = {
       ...config.experiments,

@@ -9,12 +9,17 @@ type InferModule = {
 
 let cached: Promise<InferModule> | null = null;
 
+const dynamicImport = new Function(
+  "specifier",
+  "return import(specifier)",
+) as (specifier: string) => Promise<InferModule>;
+
 export function loadFlyvisionInfer(): Promise<InferModule> {
   if (!cached) {
     const href = pathToFileURL(
       path.join(process.cwd(), "scripts/flyvision-infer.mjs"),
     ).href;
-    cached = import(href) as Promise<InferModule>;
+    cached = dynamicImport(href);
   }
   return cached;
 }
