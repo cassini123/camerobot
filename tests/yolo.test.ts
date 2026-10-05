@@ -1,5 +1,6 @@
 import { boxIou, decodeYoloOutput, nms, primarySubject, SubjectTracker, YOLO_WASM_PATHS, type YoloDet } from "@/lib/yolo";
-import { isLocalOrtPath, ORT_WASM_FILES } from "@/lib/ort-runtime";
+import { FLYVISION_DETECT_URL, FLYVISION_READY_URL } from "@/lib/flyvision-infer-client";
+import { isLocalOrtPath } from "@/lib/ort-runtime";
 import { describe, expect, it } from "vitest";
 
 describe("yolo decode / nms", () => {
@@ -97,11 +98,12 @@ describe("subject tracker", () => {
   });
 });
 
-describe("offline ORT wasm", () => {
-  it("loads onnxruntime from the same origin, not a CDN", () => {
+describe("offline infer API", () => {
+  it("keeps YOLO on the local Next API, not a CDN", () => {
     expect(isLocalOrtPath(YOLO_WASM_PATHS)).toBe(true);
-    expect(isLocalOrtPath(ORT_WASM_FILES.mjs)).toBe(true);
-    expect(isLocalOrtPath(ORT_WASM_FILES.wasm)).toBe(true);
-    expect(YOLO_WASM_PATHS).not.toMatch(/jsdelivr|unpkg|googleapis/);
+    expect(isLocalOrtPath(FLYVISION_DETECT_URL)).toBe(true);
+    expect(isLocalOrtPath(FLYVISION_READY_URL)).toBe(true);
+    expect(YOLO_WASM_PATHS).not.toMatch(/jsdelivr|unpkg|googleapis|vercel/);
+    expect(FLYVISION_DETECT_URL).toBe("/api/flyvision/detect");
   });
 });

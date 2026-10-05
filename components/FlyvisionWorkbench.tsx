@@ -238,8 +238,8 @@ export function FlyvisionWorkbench() {
           setModelState("error");
           const detail = err.message || "YOLOv8 未加载";
           setDetectError(
-            /backend|wasm|Importing a module script/i.test(detail)
-              ? "YOLO 本地 wasm 没起来。停掉终端里的 npm run dev，再开一次"
+            /backend|wasm|Importing a module script|Failed to fetch|infer HTTP/i.test(detail)
+              ? "本机 YOLO 没起来。停掉终端里的 npm run dev，再开一次。不要开 Vercel。"
               : detail,
           );
         }

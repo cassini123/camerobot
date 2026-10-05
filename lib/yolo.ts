@@ -1,9 +1,13 @@
-/** Browser YOLOv8n via onnxruntime-web. No mock boxes. */
+/** YOLOv8n via the local Next infer API. No browser wasm. */
 
 import type { BBox } from "./flyvision-match";
-import { getOrt, type OrtSession } from "./ort-runtime";
+import {
+  FLYVISION_DETECT_URL,
+  pingFlyvisionReady,
+  postFloat32,
+} from "./flyvision-infer-client";
 
-export { ORT_WASM_DIR as YOLO_WASM_PATHS } from "./ort-runtime";
+export const YOLO_WASM_PATHS = "/api/flyvision/";
 
 export const YOLO_INPUT = 640;
 export const YOLO_CONF = 0.35;
@@ -99,7 +103,7 @@ export type YoloDet = {
   box: BBox;
 };
 
-let sessionPromise: Promise<OrtSession> | null = null;
+let sessionPromise: Promise<void> | null = null;
 let inferLock: Promise<void> = Promise.resolve();
 
 export function boxIou(a: BBox, b: BBox): number {
@@ -294,27 +298,32 @@ export async function detectYolo(
   });
   await releaseWait;
   try {
-    const session = await getYoloSession();
-    const ort = await getOrt();
+    await getYoloSession();
     const { tensor, scale, padX, padY } = letterboxTensor(source, width, height);
-    const input = new ort.Tensor("float32", tensor, [1, 3, YOLO_INPUT, YOLO_INPUT]);
-    const out = await session.run({ [session.inputNames[0]]: input });
-    const first = out[session.outputNames[0]];
-    const data = first.data as Float32Array;
-    return decodeYoloOutput(data, first.dims, width, height, scale, padX, padY);
+    const res = await postFloat32(FLYVISION_DETECT_URL, tensor, {
+      "x-orig-w": String(width),
+      "x-orig-h": String(height),
+      "x-scale": String(scale),
+      "x-pad-x": String(padX),
+      "x-pad-y": String(padY),
+    });
+    const body = (await res.json()) as { dets?: YoloDet[]; error?: string };
+    if (!body.dets) {
+      throw new Error(body.error || "detect empty");
+    }
+    return body.dets;
   } finally {
     release();
   }
 }
 
-export async function getYoloSession(): Promise<OrtSession> {
+export async function getYoloSession(): Promise<void> {
   if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const ort = await getOrt();
-      return ort.InferenceSession.create(YOLO_MODEL_URL, {
-        executionProviders: ["wasm"],
-      });
-    })();
+    sessionPromise = pingFlyvisionReady().then((status) => {
+      if (!status.yolo) {
+        throw new Error("本机 YOLO 没起来。确认 npm run dev 在跑，不要开 Vercel");
+      }
+    });
   }
   return sessionPromise;
 }

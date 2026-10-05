@@ -1,16 +1,16 @@
-/** MobileCLIP2-S0 vision encoder via onnxruntime-web. */
+/** MobileCLIP2-S0 via the local Next infer API. No browser wasm. */
 
 import type { RgbPixels } from "./flyvision-match";
 import { cosineSimilarity } from "./flyvision-match";
-import { getOrt, type OrtSession } from "./ort-runtime";
+import { FLYVISION_CLIP_URL, pingFlyvisionReady, postFloat32 } from "./flyvision-infer-client";
 
-export { ORT_WASM_DIR as CLIP_WASM_PATHS } from "./ort-runtime";
+export const CLIP_WASM_PATHS = "/api/flyvision/";
 
 export const CLIP_INPUT = 256;
 export const CLIP_DIM = 512;
 export const CLIP_MODEL_URL = "/flyvision/mobileclip2-s0.onnx";
 
-let sessionPromise: Promise<OrtSession> | null = null;
+let sessionPromise: Promise<void> | null = null;
 let inferLock: Promise<void> = Promise.resolve();
 
 export function l2Normalize(vector: number[]): number[] {
@@ -41,14 +41,13 @@ export function clipTensor(image: RgbPixels): Float32Array {
   return tensor;
 }
 
-export async function getClipSession(): Promise<OrtSession> {
+export async function getClipSession(): Promise<void> {
   if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const ort = await getOrt();
-      return ort.InferenceSession.create(CLIP_MODEL_URL, {
-        executionProviders: ["wasm"],
-      });
-    })();
+    sessionPromise = pingFlyvisionReady().then((status) => {
+      if (!status.clip) {
+        throw new Error("CLIP 本机没起来");
+      }
+    });
   }
   return sessionPromise;
 }
@@ -61,12 +60,13 @@ export async function embedClip(image: RgbPixels): Promise<number[]> {
   });
   await releaseWait;
   try {
-    const session = await getClipSession();
-    const ort = await getOrt();
-    const input = new ort.Tensor("float32", clipTensor(image), [1, 3, CLIP_INPUT, CLIP_INPUT]);
-    const out = await session.run({ [session.inputNames[0] || "pixel_values"]: input });
-    const first = out[session.outputNames[0] || "image_embeds"];
-    return l2Normalize(Array.from(first.data as Float32Array));
+    await getClipSession();
+    const res = await postFloat32(FLYVISION_CLIP_URL, clipTensor(image));
+    const body = (await res.json()) as { embedding?: number[]; error?: string };
+    if (!body.embedding?.length) {
+      throw new Error(body.error || "clip empty");
+    }
+    return body.embedding;
   } finally {
     release();
   }
