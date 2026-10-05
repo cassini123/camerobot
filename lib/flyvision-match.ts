@@ -20,7 +20,12 @@ export type FrameFeatures = {
   histogram: number[];
   subjectCenter: [number, number];
   subjectArea: number;
+  embedding?: number[];
 };
+
+export const CLIP_WEIGHT = 0.55;
+export const HIST_COLOR_WEIGHT = 0.15;
+export const COMP_WEIGHT = 0.3;
 
 export type BBox = { x: number; y: number; w: number; h: number };
 
@@ -36,7 +41,14 @@ export type MatchScore = {
   similarity: number;
   histogramSimilarity: number;
   compositionSimilarity: number;
+  clipSimilarity: number | null;
+  labelSimilarity: number | null;
   sceneMatch: boolean;
+};
+
+export type ScoreMatchOptions = {
+  clipCosine?: number;
+  labelSimilarity?: number;
 };
 
 export function centerCropResize(image: RgbPixels, size: number): RgbPixels {
@@ -122,21 +134,63 @@ export function extractFeatures(image: RgbPixels, box: BBox | null): FrameFeatur
   };
 }
 
+export function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length !== right.length || left.length === 0) {
+    return 0;
+  }
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let i = 0; i < left.length; i += 1) {
+    dot += left[i] * right[i];
+    leftNorm += left[i] * left[i];
+    rightNorm += right[i] * right[i];
+  }
+  const denom = Math.sqrt(leftNorm * rightNorm);
+  if (denom === 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, (dot / denom + 1) / 2));
+}
+
 export function scoreMatch(
   current: FrameFeatures,
   reference: FrameFeatures,
   threshold = DEFAULT_MATCH_THRESHOLD,
+  options: ScoreMatchOptions = {},
 ): MatchScore {
   const histogramSimilarity = histogramCorrelation(current.histogram, reference.histogram);
   const compositionSim = compositionSimilarity(
     [...current.subjectCenter, current.subjectArea],
     [...reference.subjectCenter, reference.subjectArea],
   );
-  const similarity = 0.6 * histogramSimilarity + 0.4 * compositionSim;
+  const clipSimilarity =
+    options.clipCosine ??
+    (current.embedding && reference.embedding
+      ? cosineSimilarity(current.embedding, reference.embedding)
+      : null);
+  const labelSimilarity = options.labelSimilarity ?? null;
+  let similarity: number;
+  if (clipSimilarity === null) {
+    similarity = 0.6 * histogramSimilarity + 0.4 * compositionSim;
+  } else {
+    const label = labelSimilarity ?? 0;
+    const labelWeight = labelSimilarity === null ? 0 : 0.12;
+    const clipWeight = CLIP_WEIGHT - labelWeight * 0.4;
+    const histWeight = HIST_COLOR_WEIGHT;
+    const compWeight = COMP_WEIGHT - labelWeight * 0.6;
+    similarity =
+      clipWeight * clipSimilarity +
+      histWeight * histogramSimilarity +
+      compWeight * compositionSim +
+      labelWeight * label;
+  }
   return {
     similarity,
     histogramSimilarity,
     compositionSimilarity: compositionSim,
+    clipSimilarity,
+    labelSimilarity,
     sceneMatch: similarity >= threshold,
   };
 }

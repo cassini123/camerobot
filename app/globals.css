@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 :root {
+  --font-display: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   --bg: #07080a;
   --panel: rgba(12, 13, 16, 0.78);
   --panel-2: #181b23;

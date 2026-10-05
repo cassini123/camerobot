@@ -25,6 +25,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_image(args)
     if args.command == "stream":
         return run_stream(args)
+    if args.command == "depth":
+        return run_depth(args)
+    if args.command == "tag":
+        return run_tag(args)
     parser.print_help()
     return 1
 
@@ -70,6 +74,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Stop after N frames (0 = run until Ctrl-C).",
     )
+
+    depth = sub.add_parser("depth", help="Fuse pinhole ranging with a metric depth map.")
+    depth.add_argument("--bbox", required=True, metavar="x,y,w,h")
+    depth.add_argument("--label", default="person")
+    depth.add_argument("--aspect", type=float, default=16 / 9)
+    depth.add_argument("--hfov", type=float, default=70.0)
+    depth.add_argument("--height", type=float, default=1.7, help="Standing person height in meters.")
+    depth.add_argument("--frame", help="Still used only when --checkpoint is set.")
+    depth.add_argument("--checkpoint", help="Depth Anything V2 Metric VKITTI weights.")
+    depth.add_argument(
+        "--depth-csv",
+        help="Optional HxW CSV of metric meters (tests / no torch).",
+    )
+
+    tag = sub.add_parser("tag", help="Offline FilmOps-style labels for a reference box.")
+    tag.add_argument("--bbox", required=True, metavar="x,y,w,h")
+    tag.add_argument("--label", default="person")
+    tag.add_argument("--extra-boxes", type=int, default=0)
     return parser
 
 
@@ -154,6 +176,56 @@ def run_stream(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("stopped", file=sys.stderr)
     return 0
+
+
+def run_depth(args: argparse.Namespace) -> int:
+    from flyvision.depth import fuse_detection, infer_dav2_metric
+
+    box = _parse_box(args.bbox)
+    depth_map = None
+    if args.depth_csv:
+        depth_map = _load_depth_csv(args.depth_csv)
+    elif args.checkpoint and args.frame:
+        depth_map = infer_dav2_metric(args.frame, checkpoint=args.checkpoint)
+    fix, fused = fuse_detection(
+        args.label,
+        box,
+        depth_map,
+        aspect=args.aspect,
+        hfov_deg=args.hfov,
+        person_height_m=args.height,
+    )
+    print(
+        f"distance={fused.distance_m:.2f} source={fused.source} "
+        f"pinhole={fused.pinhole_m} metric={fused.metric_m} {fused.note}"
+    )
+    if fix:
+        print(f"heading={fix.heading} crop={fix.crop} conf={fix.confidence}")
+    return 0
+
+
+def run_tag(args: argparse.Namespace) -> int:
+    from flyvision.shot_labels import label_shot
+
+    labels = label_shot(_parse_box(args.bbox), args.label, args.extra_boxes)
+    print(labels.as_text())
+    print(f"scale={labels.scale} tags={','.join(labels.tags)}")
+    return 0
+
+
+def _parse_box(text: str) -> tuple[float, float, float, float]:
+    parts = [float(item.strip()) for item in text.split(",")]
+    if len(parts) != 4:
+        raise ValueError("bbox needs x,y,w,h in normalized coordinates")
+    return parts[0], parts[1], parts[2], parts[3]
+
+
+def _load_depth_csv(path: str) -> list[list[float]]:
+    rows: list[list[float]] = []
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append([float(item) for item in line.split(",")])
+    return rows
 
 
 def _live_detector():

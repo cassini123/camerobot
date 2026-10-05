@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 flyvision = ["opencv-python-headless>=4.8"]
+flyvision-depth = ["opencv-python-headless>=4.8", "torch>=2.2"]
 
 [project.scripts]
 camerobot = "camerobot.cli:main"

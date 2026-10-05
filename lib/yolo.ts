@@ -1,13 +1,18 @@
-/** Browser YOLOv8n via onnxruntime-web. No mock boxes. */
+/** YOLOv8n via the local Next infer API. No browser wasm. */
 
 import type { BBox } from "./flyvision-match";
+import {
+  FLYVISION_DETECT_URL,
+  pingFlyvisionReady,
+  postFloat32,
+} from "./flyvision-infer-client";
+
+export const YOLO_WASM_PATHS = "/api/flyvision/";
 
 export const YOLO_INPUT = 640;
 export const YOLO_CONF = 0.35;
 export const YOLO_IOU = 0.45;
 export const YOLO_MODEL_URL = "/flyvision/yolov8n.onnx";
-export const YOLO_WASM_CDN =
-  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
 
 export const COCO_LABELS = [
   "person",
@@ -98,27 +103,7 @@ export type YoloDet = {
   box: BBox;
 };
 
-type OrtRuntime = {
-  env: { wasm: { wasmPaths: string; numThreads: number } };
-  Tensor: new (type: string, data: Float32Array, dims: number[]) => unknown;
-  InferenceSession: {
-    create: (
-      path: string,
-      options: { executionProviders: string[] },
-    ) => Promise<OrtSession>;
-  };
-};
-
-type OrtSession = {
-  inputNames: string[];
-  outputNames: string[];
-  run: (feeds: Record<string, unknown>) => Promise<
-    Record<string, { data: Float32Array; dims: readonly number[] }>
-  >;
-};
-
-let ortModule: OrtRuntime | null = null;
-let sessionPromise: Promise<OrtSession> | null = null;
+let sessionPromise: Promise<void> | null = null;
 let inferLock: Promise<void> = Promise.resolve();
 
 export function boxIou(a: BBox, b: BBox): number {
@@ -210,6 +195,97 @@ export function primarySubject(dets: YoloDet[]): YoloDet | null {
   );
 }
 
+/**
+ * Keep the same subject across frames (IoU lock) and smooth the box
+ * with a constant-velocity Kalman. This is for temporal stability,
+ * not for publishing meters as RTK.
+ */
+export class SubjectTracker {
+  private prev: YoloDet | null = null;
+  private kf: {
+    cx: number;
+    cy: number;
+    w: number;
+    h: number;
+    vx: number;
+    vy: number;
+    p: number;
+  } | null = null;
+
+  constructor(
+    private readonly iouMin = 0.3,
+    private readonly q = 0.04,
+    private readonly r = 0.12,
+  ) {}
+
+  reset(): void {
+    this.prev = null;
+    this.kf = null;
+  }
+
+  push(dets: YoloDet[]): YoloDet | null {
+    const picked = this.pick(dets);
+    if (!picked) {
+      this.reset();
+      return null;
+    }
+    const measCx = picked.box.x + picked.box.w / 2;
+    const measCy = picked.box.y + picked.box.h / 2;
+    if (!this.kf) {
+      this.kf = {
+        cx: measCx,
+        cy: measCy,
+        w: picked.box.w,
+        h: picked.box.h,
+        vx: 0,
+        vy: 0,
+        p: 1,
+      };
+    } else {
+      this.kf.cx += this.kf.vx;
+      this.kf.cy += this.kf.vy;
+      this.kf.p += this.q;
+      const gain = this.kf.p / (this.kf.p + this.r);
+      const dx = measCx - this.kf.cx;
+      const dy = measCy - this.kf.cy;
+      this.kf.cx += gain * dx;
+      this.kf.cy += gain * dy;
+      this.kf.vx = (1 - gain) * this.kf.vx + gain * dx;
+      this.kf.vy = (1 - gain) * this.kf.vy + gain * dy;
+      this.kf.w += gain * (picked.box.w - this.kf.w);
+      this.kf.h += gain * (picked.box.h - this.kf.h);
+      this.kf.p *= 1 - gain;
+    }
+    this.prev = picked;
+    const w = Math.min(1, Math.max(0.01, this.kf.w));
+    const h = Math.min(1, Math.max(0.01, this.kf.h));
+    const x = Math.min(1 - w, Math.max(0, this.kf.cx - w / 2));
+    const y = Math.min(1 - h, Math.max(0, this.kf.cy - h / 2));
+    return { ...picked, box: { x, y, w, h } };
+  }
+
+  private pick(dets: YoloDet[]): YoloDet | null {
+    if (this.prev) {
+      let best: YoloDet | null = null;
+      let bestIou = this.iouMin;
+      for (const det of dets) {
+        if (det.label !== this.prev.label) {
+          continue;
+        }
+        const iou = boxIou(det.box, this.prev.box);
+        if (iou >= bestIou) {
+          bestIou = iou;
+          best = det;
+        }
+      }
+      if (best) {
+        return best;
+      }
+    }
+    return primarySubject(dets);
+  }
+}
+
 export async function detectYolo(
   source: CanvasImageSource,
   width: number,
@@ -222,40 +298,34 @@ export async function detectYolo(
   });
   await releaseWait;
   try {
-    const session = await getYoloSession();
-    const ort = await getOrt();
+    await getYoloSession();
     const { tensor, scale, padX, padY } = letterboxTensor(source, width, height);
-    const input = new ort.Tensor("float32", tensor, [1, 3, YOLO_INPUT, YOLO_INPUT]);
-    const out = await session.run({ [session.inputNames[0]]: input });
-    const first = out[session.outputNames[0]];
-    const data = first.data as Float32Array;
-    return decodeYoloOutput(data, first.dims, width, height, scale, padX, padY);
+    const res = await postFloat32(FLYVISION_DETECT_URL, tensor, {
+      "x-orig-w": String(width),
+      "x-orig-h": String(height),
+      "x-scale": String(scale),
+      "x-pad-x": String(padX),
+      "x-pad-y": String(padY),
+    });
+    const body = (await res.json()) as { dets?: YoloDet[]; error?: string };
+    if (!body.dets) {
+      throw new Error(body.error || "detect empty");
+    }
+    return body.dets;
   } finally {
     release();
   }
 }
 
-export async function getYoloSession(): Promise<OrtSession> {
+export async function getYoloSession(): Promise<void> {
   if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const ort = await getOrt();
-      return ort.InferenceSession.create(YOLO_MODEL_URL, {
-        executionProviders: ["wasm"],
-      });
-    })();
+    sessionPromise = pingFlyvisionReady().then((status) => {
+      if (!status.yolo) {
+        throw new Error("本机 YOLO 没起来。确认 npm run dev 在跑，不要开 Vercel");
+      }
+    });
   }
   return sessionPromise;
-}
-
-async function getOrt(): Promise<OrtRuntime> {
-  if (ortModule) {
-    return ortModule;
-  }
-  const ort = (await import("onnxruntime-web")) as unknown as OrtRuntime;
-  ort.env.wasm.wasmPaths = YOLO_WASM_CDN;
-  ort.env.wasm.numThreads = 1;
-  ortModule = ort;
-  return ort;
 }
 
 function letterboxTensor(

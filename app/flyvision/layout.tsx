@@ -4,7 +4,7 @@ import "./flyvision.css";
 
 export const metadata: Metadata = {
   title: "Flyvision",
-  description: "上传参考图，摄像头对照。YOLOv8 + 空间距离。",
+  description: "上传参考图，电脑摄像头或 ESP32-CAM 对照。YOLOv8 + 占位伺服。",
 };
 
 export default function FlyvisionLayout({ children }: { children: ReactNode }) {

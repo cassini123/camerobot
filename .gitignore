@@ -18,6 +18,10 @@ node_modules/
 flyvision/data/captures/*
 !flyvision/data/captures/.gitkeep
 
+# onnxruntime-web WASM copied by scripts/copy-ort-wasm.mjs
+public/flyvision/ort/*.wasm
+public/flyvision/ort/*.mjs
+
 # Reconstruction assets are too large for GitHub (model.ply ~3.3GB).
 example/*.ply
 example/*.PLY

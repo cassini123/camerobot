@@ -29,8 +29,10 @@ plans robot motion. flyvision consumes those shots and scores a live frame.
 | --- | --- | --- |
 | 1 Camera | `camera.py`, `preprocess.py`, `firmware/esp32cam` | MJPEG / webcam / still; crop-resize 256×256 |
 | 2 Scene | browser `lib/yolo.ts` | **YOLOv8n** in-page (onnxruntime-web). No injected boxes. |
-| 3 Shot matching | `shots.py`, `match.py` | HSV histogram + subject vector vs reference still |
-| 4 Composition | `composition.py` | Person center vs `composition.horizontal/vertical` |
+| 2b Space | `lib/spatial.ts`, `spatial.py`, `depth.py` | Occupancy/heading gate (近了/偏右). Pinhole meters = 约/不可靠 hint. CAM FOV ≠ webcam FOV |
+| 3 Shot matching | `match.py`, `lib/clip-embed.ts` | **MobileCLIP2-S0** cosine; HSV is color only |
+| 3b Labels | `shot_labels.py`, `lib/shot-labels.ts` | FilmOps-style scale + composition tags |
+| 4 Composition | `composition.py` | Person center vs `composition.horizontal/vertical` (not embeddings) |
 | 5 Capture | `capture.py`, `pipeline.py` | Match + composition + N stable frames → `CAPTURE_GO` |
 
 `CAPTURE_GO` writes a BMP. It does **not** fire a shutter, gimbal, or
@@ -62,8 +64,14 @@ Open the matcher:
 http://localhost:3000/flyvision
 ```
 
-Upload a photo on the left. The page loads `public/flyvision/yolov8n.onnx` and
-draws real COCO boxes. The right pane is the live camera, same model.
+Upload a photo on the left. The page posts frames to `/api/flyvision/detect`.
+YOLO/CLIP run in the local Next process from `public/flyvision/*.onnx` and
+`node_modules/onnxruntime-web` — Safari never imports wasm, and there is no
+jsDelivr / Vercel / Google Fonts. The right pane is a laptop webcam **or** an
+ESP32-CAM still URL. Local `next dev` proxies `/flyvision/cam/capture` to
+`http://192.168.4.1/capture`. GO is occupancy + heading + CLIP, not pinhole
+meters. Joining `flyvision-cam` cuts the laptop off the internet — do not open
+a Vercel URL.
 
 ```bash
 # one still, injected person box (no OpenCV)
