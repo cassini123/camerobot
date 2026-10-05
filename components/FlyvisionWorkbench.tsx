@@ -821,7 +821,7 @@ export function FlyvisionWorkbench() {
             {live ? null : (
               <div className="apple-idle apple-idle-grid">
                 <button className="apple-drop" type="button" disabled={camBusy} onClick={() => void startCamera(cameraId || undefined)}>
-                  <span>{camBusy && liveKind !== "esp-cam" ? "正在打开…" : "电脑摄像头"}</span>
+                  <span>{camBusy ? "正在打开…" : "电脑摄像头"}</span>
                   <em>笔记本自带摄像头，先看构图</em>
                 </button>
                 <button className="apple-drop" type="button" disabled={camBusy} onClick={() => startEspCam()}>
